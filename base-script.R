@@ -17,7 +17,7 @@
 
 library(sp)
 library(sf)
-library(rgdal)
+library(rgdal) ## will be retired in 2023
 library(stars)
 library(terra)
 library(rgeos)
@@ -28,6 +28,7 @@ library(movecost)
 library(stringr)
 library(dplyr)
 library(gdalUtilities)
+library(ggplot2)
 
 #library(snow)
 #library(doSNOW)
@@ -80,10 +81,8 @@ rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratch.dir, "
 #untar the DEM (source: OpenTopography SRTM15+), the catchment area (source: OpenTopography SRTM15+), the pit removal (source: Open Topography SRTM15+)
 dem.untar <-  utils::untar(paste0(storage.inputs.tar,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
-
 #make a raster out of the the tar file; cropping will happen below
 dem <- raster::raster(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
-
 
 #update the crs on all the files so they are the same
 raster::crs(dem)
@@ -125,6 +124,11 @@ lakes <-
 # 1x: Clip the Shaprefiles to the raster extent ----------
 ################################################################################
 
+#Create the cropping extent
+new_extent <- extent(1.491667, 60.37917, -38.92917, 3.725)
+class(new_extent)
+
+#PREP Rivers
 rivers.valid <- rivers[which(!is.na(rivers$scalerank)), ]
 
 #convert to a single geometry
@@ -136,157 +140,112 @@ unique(rivers.types)
 
 clip.rivers <-
   rivers.valid[grepl("*MULTILINESTRING", rivers.types), ] %>%  #ignore the geometry collections
-  dplyr::filter(sf::st_intersects(x = ., y = this.study.area, sparse = FALSE)) %>%
-  sf::st_write(., paste0(scratch.dir, "/", "clip_padus.shp"), delete_layer = TRUE)
+  sf::st_crop(x = ., y = new_extent) %>%
+  sf::st_write(., paste0(scratch.dir, "/", "clip_rivers.shp"), delete_layer = TRUE) 
+
+#Filtering for only rivers with a scale rank of 8, 9 (largest rivers)
+rivers.scalerank <- clip.rivers[which(clip.rivers$scalerank == c("8", "9")), ]
+rivers.scalerank$rastcode <- 1
+sf::st_write(rivers.scalerank, paste0(scratch.dir, "/", "clip_rivers_sr.shp"), delete_layer = TRUE) 
 
 
-#PREP TRANS
-trans <-
-  rgdal::readOGR(dsn = storage.inputs, layer = "Trans_RoadSegment") %>%
-  #trans <- sf::st_read(trans.poly) #sf will not read in the shapefile, it will crash R
-  #no rastcode needed, using the MTFCC Code already in table
-  sp::spTransform(., crs.thisproject)
+#PREP Lakes
+lakes.valid <- lakes[which(!is.na(lakes$scalerank)), ]
 
-clip.trans <-
-  st_as_sf(trans) %>%
-  filter(sf::st_intersects(x = ., y = this.study.area, sparse = FALSE)) %>%
-  sf::st_write(., paste0(scratch.dir, "/", "clip_trans.shp"), delete_layer = TRUE)
+#convert to a single geometry
+lakes.types <- vapply(sf::st_geometry(lakes.valid), function(x) {
+  class(x)[2]
+}, "")
 
+unique(lakes.types)
 
-#PREP ELECT
-elect <-
-  sf::st_read(elect.poly) %>%
-  sf::st_transform(., crs.thisproject) %>%
-  lwgeom::st_make_valid(.)
+clip.lakes <-
+  lakes.valid[grepl("*MULTIPOLYGON", lakes.types), ] %>%  #ignore the geometry collections
+  sf::st_crop(x = ., y = new_extent) %>%
+  sf::st_write(., paste0(scratch.dir, "/", "clip_lakes.shp"), delete_layer = TRUE) 
 
-elect.valid <- elect[which(elect$STATUS == "IN SERVICE"), ]
-elect.valid$rastcode <- 1
+lakes.scalerank <- clip.lakes
+lakes.scalerank$rastcode <- 1
+sf::st_write(lakes.scalerank, paste0(scratch.dir, "/", "clip_lakes_sr.shp"), delete_layer = TRUE) 
 
-clip.elect <-
-  elect.valid %>%
-  filter(sf::st_intersects(x = ., y = this.study.area, sparse = FALSE)) %>%
-  sf::st_write(., paste0(scratch.dir, "/", "clip_elect.shp"), delete_layer = TRUE)
+#Sanity check: Make a map to see if it all looks correct
 
-################################################################################
-# Nx: Setup SSURGO and CDL raster datasets, create RATs ----------
-################################################################################
-#get raster attribute tables for the cdl and ssurgo datasets
-#ssurgo
-ssurgo.rat.list <- as.list(list.files(paste0(storage.inputs), pattern = "*.dbf$", full.names = FALSE, recursive = FALSE))
-
-sdbf.file <- paste0(storage.inputs, "/", ssurgo.rat.list[[6]])
-ssurgo.dbf <- foreign::read.dbf(sdbf.file)
-
-s.rat <- levels(ssurgo)[[1]]
-s.rat$nccpi <- as.data.frame(cbind("ID" = ssurgo.dbf$Value, "nccpi" = ssurgo.dbf$nccpi, "nccpicorn" = ssurgo.dbf$nccpics, "nccpismgr" = ssurgo.dbf$nccpism, "nccpicot" = ssurgo.dbf$nccpicot, "nccpisoy" = ssurgo.dbf$nccpisoy))
-
-levels(ssurgo) <- s.rat
-
-beginCluster()
-
-nccpi.corn <- clusterR(ssurgo, deratify, args = list(att = "nccpicorn", count = TRUE), filename = "nccpicorn")
-nccpi.smgr <- clusterR(ssurgo, deratify, args = list(att = "nccpismgr", count = TRUE), filename = "nccpismgr")
-nccpi.cot <- clusterR(ssurgo, deratify, args = list(att = "nccpicot", count = TRUE), filename = "nccpicot")
-nccpi.soy <- clusterR(ssurgo, deratify, args = list(att = "nccpisoy", count = TRUE), filename = "nccpisoy")
-
-endCluster()
-
-
-#cdl
-cdbf.file <- paste0(storage.cdls, "/", cdl.name, ".tif.vat.dbf")
-cdl.dbf <- foreign::read.dbf(cdbf.file)
-cdl.dbf$clname <- as.character(cdl.dbf$Class_Name)
-
-cdl.rat <- vector(mode = "list", length = 1)
-
-c.rat <- levels(cdl)
-
-c.rat$cdl_value <- as.data.frame(cbind("ID" = cdl.dbf$Value, "CDL Value" = cdl.dbf$Value, "CDL Classname" = cdl.dbf$clname))
-
-levels(cdl) <- c.rat  
+plot(dem)
+plot(lakes.scalerank, add = TRUE)
+plot(rivers.scalerank, add = TRUE)
 
 ################################################################################
-# Nx: Clip CDL to study areas ----------
-################################################################################
-
-#the data are for CONUS, so first it must be cropped to the study area
-#this is where M1 where stop
-thisSA.cdl <- raster::crop(cdl, this.study.area, snap = "near", filename = paste0(cdl.year, "_thisSA_cdl"))
-thogSA.cdl <- raster::crop(cdl, thog.study.area, snap = "near", filename = paste0(cdl.year, "_thogSA_cdl"))
-
-################################################################################
-# 1x: Clip SSURGO to study areas ----------
-################################################################################
-
-thisSA.nccpi.corn <- raster::crop(nccpi.corn, this.study.area, snap = "near", filename = "thisSA_nccpicorn", overwrite = TRUE)
-thisSA.nccpi.smgr <- raster::crop(nccpi.smgr, this.study.area, snap = "near", filename = "thisSA_nccpismgr", overwrite = TRUE)
-thisSA.nccpi.cot <- raster::crop(nccpi.cot, this.study.area, snap = "near", filename = "thisSA_nccpicot", overwrite = TRUE)
-thisSA.nccpi.soy <- raster::crop(nccpi.soy, this.study.area, snap = "near", filename = "thisSA_nccpisoy", overwrite = TRUE)
-
-thogSA.nccpi.corn <- raster::crop(nccpi.corn, thog.study.area, snap = "near", filename = "thogSA_nccpicorn", overwrite = TRUE)
-thogSA.nccpi.smgr <- raster::crop(nccpi.smgr, thog.study.area, snap = "near", filename = "thogSA_nccpismgr", overwrite = TRUE)
-thogSA.nccpi.cot <- raster::crop(nccpi.cot, thog.study.area, snap = "near", filename = "thogSA_nccpicot", overwrite = TRUE)
-thogSA.nccpi.soy <- raster::crop(nccpi.soy, thog.study.area, snap = "near", filename = "thogSA_nccpisoy", overwrite = TRUE)
-
-
-################################################################################
-# 1x: Create raster data versions of the PADUS, TRANS, ELECT inputs ----------
+# 1x: Create raster data versions of the Lakes and Rivers inputs ----------
 ################################################################################
 
 #create a blank raster on to which the polys will be rasterized
-blank.r <- raster::setValues(thisSA.cdl, NA)
+blank.r <- raster::setValues(dem, NA)
 
 #gdal_rasterize
 #check for valid installation
-gdalUtils::gdal_setInstallation()
-valid_install <- !is.null(getOption("gdalUtils_gdalPath"))
+# gdalUtilities::gdal_setInstallation()
+# valid_install <- !is.null(getOption("gdalUtils_gdalPath"))
 
 ################################################################################
-# 1x: Rasterize PADUS ----------
-################################################################################
-
-#destination dataset (raster dataset to be written/burned to)
-dst_filename <- paste0("thisSA.padus",".tif",sep = "")
-raster::writeRaster(blank.r, dst_filename, overwrite = TRUE, format = "GTiff")
-
-#source dataset (poly data)
-path.padus.clip <- paste0(scratch.dir, "/", "clip_padus.shp")
-
-#rasterize the dataset using gdal outside of R; bring result back into R
-thisSA.padus <- gdalUtils::gdal_rasterize(path.padus.clip , dst_filename, b=1, at=TRUE, a="rastcode", l="clip_padus", verbose=TRUE, output_Raster=TRUE)
-
-################################################################################
-# 1x: Rasterize TRANS ----------
+# 1x: Rasterize Rivers ----------
 ################################################################################
 
 #destination dataset (raster dataset to be written/burned to)
-dst_filename <- paste0("thisSA.trans",".tif",sep = "")
-raster::writeRaster(blank.r, dst_filename, overwrite = TRUE, format = "GTiff")
+dst_filename <- paste0("rivers.cr",".tif",sep = "")
+terra::writeRaster(blank.r, dst_filename, overwrite = TRUE, format = "GTiff")
 
 #source dataset (poly data)
-path.trans.clip <- paste0(scratch.dir, "/", "clip_trans.shp")
+clip.rivers.path <- paste0(scratch.dir, "/", "clip_rivers_sr.shp")
 
 #rasterize the dataset using gdal outside of R; bring result back into R
-thisSA.trans <- gdalUtils::gdal_rasterize(path.trans.clip , dst_filename, b=1, at=TRUE, a="MTFCC_CODE", l="clip_trans", verbose=TRUE, output_Raster=TRUE)
+#note that this is set by at=TRUE to burn all pixels that are touched by the vector
+rivers.raster <- gdalUtilities::gdal_rasterize(clip.rivers.path, dst_filename, b=1, at=TRUE, a="rastcode")
+
+#make a raster out of the the tar file; cropping will happen below
+riversR <- raster::raster(paste0(scratch.dir, "/rivers.cr.tif"))
 
 ################################################################################
-# 1x: Rasterize ELECT ----------
+# 1x: Rasterize Lakes ----------
 ################################################################################
 
 #destination dataset (raster dataset to be written/burned to)
-dst_filename <- paste0("thisSA.elect",".tif",sep = "")
-raster::writeRaster(blank.r, dst_filename, overwrite = TRUE, format = "GTiff")
+dst_filename <- paste0("lakes.cr",".tif",sep = "")
+terra::writeRaster(blank.r, dst_filename, overwrite = TRUE, format = "GTiff")
 
 #source dataset (poly data)
-path.elect.clip <- paste0(scratch.dir, "/", "clip_elect.shp")
+clip.lakes.path <- paste0(scratch.dir, "/", "clip_lakes_sr.shp")
 
 #rasterize the dataset using gdal outside of R; bring result back into R
-thisSA.elect <- gdalUtils::gdal_rasterize(path.elect.clip , dst_filename, b=1, at=TRUE, a="rastcode", l="clip_elect", verbose=TRUE, output_Raster=TRUE)
+#note that this is set by at=TRUE to burn all pixels that are touched by the vector
+lakes.raster <- gdalUtilities::gdal_rasterize(clip.lakes.path, dst_filename, b=1, at=TRUE, a="rastcode")
+
+#make a raster out of the the tar file; cropping will happen below
+lakeR <- raster::raster(paste0(scratch.dir, "/lakes.cr.tif"))
+
+#set zeros to NA 
+lakeR <- calc(lakeR, fun=function(x){ x[x == 0] <- NA; return(x)} )
+riversR <- calc(riversR, fun=function(x){ x[x == 0] <- NA; return(x)} )
+
+#Sanity check: Make a map to see if it all looks correct
+plot(dem)
+plot(lakeR, add = TRUE)
+plot(riversR, add = TRUE)
+
+
+
+################################################################################
+# 1x: Make lakes and rivers un-crossable or un-serviceable ----------
+################################################################################
+
+
+
+
+
 
 ################################################################################
 # Nx: Copy created files to the data output file on my Home Directory ----------
 ################################################################################  
 
 #Copied all scratch files over to varinputs, so I don't have to re-run everything
-scratch.files <- list.files(scratch.dir)
-file.copy(file.path(scratch.dir, scratch.files), data.outputs, overwrite = TRUE)
+# scratch.files <- list.files(scratch.dir)
+# file.copy(file.path(scratch.dir, scratch.files), data.outputs, overwrite = TRUE)
