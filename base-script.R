@@ -1,8 +1,11 @@
 ################################################################################
 # Data Preparations
 # 1. Create input layers: 
-# 2. Setup  raster files
-# 3. Setup  raster files
+#   a. lakes
+#   b. rivers
+#   c. dem
+# 2. Clip layers to match extent of the DEM
+# 3. 
 #
 ################################################################################
 
@@ -124,6 +127,8 @@ lakes <-
 ################################################################################
 
 #Create the cropping extent
+#to determine the extent this is from crs(dem) and then the values are entered here
+#if a new DEM is introduced with a different extent, then these values would need to be updated.
 new_extent <- extent(1.491667, 60.37917, -38.92917, 3.725)
 class(new_extent)
 
@@ -222,8 +227,8 @@ lakes.spr <- rast(lakes.raster)
 lakeR <- raster::raster(paste0(scratch.dir, "/lakes.cr.tif"))
 
 #set zeros to NA 
-lakeR <- calc(lakeR$rastcode, fun=function(x){ x[x == 0] <- NA; return(x)} )
-riversR <- calc(riversR$rastcode, fun=function(x){ x[x == 0] <- NA; return(x)} )
+lakeR <- calc(lakeR, fun=function(x){ x[x == 0] <- NA; return(x)} )
+riversR <- calc(riversR, fun=function(x){ x[x == 0] <- NA; return(x)} )
 
 #set ones to zero
 lakeR <- calc(lakeR, fun=function(x){ x[x == 1] <- 0; return(x)} )
@@ -244,23 +249,56 @@ dem.cr <- terra::cover(dem, riversR, filename = "dem_cr.tif", overwrite = TRUE)
 #cover the DEM that is covered by riversR with the lakeR dataset which has lakes coded as zero
 dem.crl <- terra::cover(dem.cr, lakeR, filename = "dem_crl.tif", overwrite = TRUE)
 
-#make the zeros NAs and make elevation <= -2000 == zero as well; this is to adjust the "coastline"
+#make the zeros NAs and make elevation <= -125 == zero as well; this is to adjust the "coastline" per publication notes
 
 dem.crl <- calc(dem.crl, fun=function(x){ x[x == 0] <- NA; return(x)} )
-dem.crl <- calc(dem.crl, fun=function(x){ x[x <= -2000] <- NA; return(x)} )
+dem.crl <- calc(dem.crl, fun=function(x){ x[x <= -125] <- NA; return(x)} )
 
 plot(dem.crl)
 
 ################################################################################
 # 1x: Create Grid of Sample Points ----------
 ################################################################################
+
+#destination dataset (raster dataset to be written/burned to)
+dst_filename <- paste0("dem_crl",".tif",sep = "")
+terra::writeRaster(dem.crl, dst_filename, overwrite = TRUE, format = "GTiff")
+
 #casting as a spatial raster "spatRaster"
 dem.crl.sr <- rast(dem.crl)
 
 # regular sampling
-sample <- terra::spatSample(dem.crl.sr, 1000, method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
+sample <- terra::spatSample(dem.crl.sr, size = c(10000, 10000), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
 
+#Sanity check: Make a map to see if it all looks correct
+plot(dem.crl.sr)
+plot(sample, add = TRUE)
 
+#Filtering for only points on land >= -125m
+sample.f3 <- sample[which(sample$layer >= -125), ]
+
+writeVector(sample.f3, "sample_f3.shp", filetype="ESRI Shapefile", overwrite=TRUE)
+
+#Sanity check: Make a map to see if it all looks correct
+plot(dem.crl.sr)
+plot(sample.f3, add = TRUE)
+
+################################################################################
+# 1x: MoveCost Calculations ----------
+################################################################################
+
+mc.1 <- movecost(
+  dtm = dem.crl.sr,
+  origin = sample.f3,
+  destin = sample.f3,
+  studyplot = NULL,
+  funct = "t",
+  move = 8,
+  cogn.slp = FALSE,
+  N = 1,
+  return.base = TRUE,
+  export = TRUE
+)
 
 
 
