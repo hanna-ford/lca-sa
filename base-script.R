@@ -70,8 +70,7 @@ ifelse(!dir.exists("./tmp/"), dir.create("./tmp/"), "Folder exists already")
 
 # set some of the options that will be used frequently
 # including where the tmp directory will be
-rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratch.dir, "/tmp/"),
-              timer = TRUE)
+rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratch.dir, "/tmp/"), timer = TRUE)
 
 
 ################################################################################
@@ -143,8 +142,8 @@ clip.rivers <-
   sf::st_crop(x = ., y = new_extent) %>%
   sf::st_write(., paste0(scratch.dir, "/", "clip_rivers.shp"), delete_layer = TRUE) 
 
-#Filtering for only rivers with a scale rank of 8, 9 (largest rivers)
-rivers.scalerank <- clip.rivers[which(clip.rivers$scalerank == c("8", "9")), ]
+#Filtering for only rivers with a scale rank of 7, 8, 9 (largest rivers)
+rivers.scalerank <- clip.rivers[which(clip.rivers$scalerank >= 7), ]
 rivers.scalerank$rastcode <- 1
 sf::st_write(rivers.scalerank, paste0(scratch.dir, "/", "clip_rivers_sr.shp"), delete_layer = TRUE) 
 
@@ -164,7 +163,8 @@ clip.lakes <-
   sf::st_crop(x = ., y = new_extent) %>%
   sf::st_write(., paste0(scratch.dir, "/", "clip_lakes.shp"), delete_layer = TRUE) 
 
-lakes.scalerank <- clip.lakes
+#Filtering for only lakes with a scale rank of 0, 3 (largest lakes)
+lakes.scalerank <- clip.lakes[which(clip.lakes$scalerank <= 3), ]
 lakes.scalerank$rastcode <- 1
 sf::st_write(lakes.scalerank, paste0(scratch.dir, "/", "clip_lakes_sr.shp"), delete_layer = TRUE) 
 
@@ -181,11 +181,6 @@ plot(rivers.scalerank, add = TRUE)
 #create a blank raster on to which the polys will be rasterized
 blank.r <- raster::setValues(dem, NA)
 
-#gdal_rasterize
-#check for valid installation
-# gdalUtilities::gdal_setInstallation()
-# valid_install <- !is.null(getOption("gdalUtils_gdalPath"))
-
 ################################################################################
 # 1x: Rasterize Rivers ----------
 ################################################################################
@@ -200,6 +195,8 @@ clip.rivers.path <- paste0(scratch.dir, "/", "clip_rivers_sr.shp")
 #rasterize the dataset using gdal outside of R; bring result back into R
 #note that this is set by at=TRUE to burn all pixels that are touched by the vector
 rivers.raster <- gdalUtilities::gdal_rasterize(clip.rivers.path, dst_filename, b=1, at=TRUE, a="rastcode")
+
+rivers.spr <- rast(rivers.raster)
 
 #make a raster out of the the tar file; cropping will happen below
 riversR <- raster::raster(paste0(scratch.dir, "/rivers.cr.tif"))
@@ -219,24 +216,49 @@ clip.lakes.path <- paste0(scratch.dir, "/", "clip_lakes_sr.shp")
 #note that this is set by at=TRUE to burn all pixels that are touched by the vector
 lakes.raster <- gdalUtilities::gdal_rasterize(clip.lakes.path, dst_filename, b=1, at=TRUE, a="rastcode")
 
+lakes.spr <- rast(lakes.raster)
+
 #make a raster out of the the tar file; cropping will happen below
 lakeR <- raster::raster(paste0(scratch.dir, "/lakes.cr.tif"))
 
 #set zeros to NA 
-lakeR <- calc(lakeR, fun=function(x){ x[x == 0] <- NA; return(x)} )
-riversR <- calc(riversR, fun=function(x){ x[x == 0] <- NA; return(x)} )
+lakeR <- calc(lakeR$rastcode, fun=function(x){ x[x == 0] <- NA; return(x)} )
+riversR <- calc(riversR$rastcode, fun=function(x){ x[x == 0] <- NA; return(x)} )
+
+#set ones to zero
+lakeR <- calc(lakeR, fun=function(x){ x[x == 1] <- 0; return(x)} )
+riversR <- calc(riversR, fun=function(x){ x[x == 1] <- 0; return(x)} )
 
 #Sanity check: Make a map to see if it all looks correct
 plot(dem)
 plot(lakeR, add = TRUE)
 plot(riversR, add = TRUE)
 
-
-
 ################################################################################
-# 1x: Make lakes and rivers un-crossable or un-serviceable ----------
+# 1x: Cover the DEM with the values of the rasterized lakes and rivers ----------
 ################################################################################
 
+#cover the DEM with the riversR dataset which has rivers coded as zero
+dem.cr <- terra::cover(dem, riversR, filename = "dem_cr.tif", overwrite = TRUE)
+
+#cover the DEM that is covered by riversR with the lakeR dataset which has lakes coded as zero
+dem.crl <- terra::cover(dem.cr, lakeR, filename = "dem_crl.tif", overwrite = TRUE)
+
+#make the zeros NAs and make elevation <= -2000 == zero as well; this is to adjust the "coastline"
+
+dem.crl <- calc(dem.crl, fun=function(x){ x[x == 0] <- NA; return(x)} )
+dem.crl <- calc(dem.crl, fun=function(x){ x[x <= -2000] <- NA; return(x)} )
+
+plot(dem.crl)
+
+################################################################################
+# 1x: Create Grid of Sample Points ----------
+################################################################################
+#casting as a spatial raster "spatRaster"
+dem.crl.sr <- rast(dem.crl)
+
+# regular sampling
+sample <- terra::spatSample(dem.crl.sr, 1000, method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
 
 
 
