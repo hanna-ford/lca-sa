@@ -18,7 +18,7 @@
 library(sp)
 library(sf)
 library(rgdal)
-#library(stars)
+library(stars)
 library(terra)
 library(rgeos)
 library(raster)
@@ -57,38 +57,33 @@ library(gdalUtilities)
 
 storage.inputs.tar <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Zipped Originals")
 storage.inputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Unzipped files")
-scratch.dir <- paste0("C:/Users/hlford/Box/JoshuaRobinson/lca-sa")
+scratch.dir <- paste0("C:/Temp/JRobinson/lca-sa")
 
 ##### Set the working directory to scratch
 setwd(scratch.dir)
 
 # create required directories, if needed
 # Check if the folder "Data" exists in the current directory, if not creates it
-ifelse(!dir.exists(".//tmp//"), dir.create(".//tmp//"), "Folder exists already")
+ifelse(!dir.exists("./tmp/"), dir.create("./tmp/"), "Folder exists already")
 
-# check that they were created
-dir.exists(".//tmp//")
 
 # set some of the options that will be used frequently
 # including where the tmp directory will be
-rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratch.dir, "//tmp//"),
+rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratch.dir, "/tmp/"),
               timer = TRUE)
 
-tmpDir(create=TRUE)
 
 ################################################################################
 # Nx: Load required files and setup lists ----------
 ################################################################################
 
 #untar the DEM (source: OpenTopography SRTM15+), the catchment area (source: OpenTopography SRTM15+), the pit removal (source: Open Topography SRTM15+)
-dem.untar <- untar(paste0(storage.inputs.tar,"/rasters_SRTM15Plus.tar.gz"), list = TRUE)
-cat.untar <- untar(paste0(storage.inputs.tar,"/Dinfarea.tar.gz"), list = TRUE)
-pit.untar <- untar(paste0(storage.inputs.tar,"/pitRemove.tar.gz"), list = TRUE)
+dem.untar <-  utils::untar(paste0(storage.inputs.tar,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
-#make a raster out of the the tifs; cropping will happen below
-dem <- raster::raster(paste0(dem.untar), RAT = TRUE)
-#cat <- raster::raster(paste0(cat.untar), RAT = TRUE) ## is not wanting to be a raster
-#pit <- raster::raster(paste0(pit.untar), RAT = TRUE)  ## is not wanting to be a raster
+
+#make a raster out of the the tar file; cropping will happen below
+dem <- raster::raster(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
+
 
 #update the crs on all the files so they are the same
 raster::crs(dem)
@@ -126,37 +121,21 @@ lakes <-
   sf::st_make_valid(.)
 
 
-
 ################################################################################
-# 1x: Import, define, and clip PADUS, TRANS, and ELECT shapefiles ----------
+# 1x: Clip the Shaprefiles to the raster extent ----------
 ################################################################################
-#get the various required shapefiles; first as a list; then bring them in and name them
-varinputs.list.full <- as.list(list.files(paste0(storage.inputs), pattern = "*.shp$", full.names = FALSE, recursive = FALSE))
 
-#define the name
-padus.poly <- paste0(storage.inputs, "/", varinputs.list.full[6])
-trans.poly <- paste0(storage.inputs, "/", varinputs.list.full[7])
-elect.poly <- paste0(storage.inputs, "/", varinputs.list.full[5])
-
-
-#PREP PADUS
-padus <-
-  sf::st_read(padus.poly) %>%
-  sf::st_transform(., crs.thisproject) %>%
-  lwgeom::st_make_valid(.)
-
-padus.valid <- padus[which(!is.na(padus$Category)), ]
-padus.valid$rastcode <- 1
+rivers.valid <- rivers[which(!is.na(rivers$scalerank)), ]
 
 #convert to a single geometry
-padus.types <- vapply(sf::st_geometry(padus.valid), function(x) {
+rivers.types <- vapply(sf::st_geometry(rivers.valid), function(x) {
   class(x)[2]
 }, "")
 
-unique(padus.types)
+unique(rivers.types)
 
-clip.padus <-
-  padus.valid[grepl("*MULTIPOLYGON", padus.types), ] %>%  #ignore the geometry collections
+clip.rivers <-
+  rivers.valid[grepl("*MULTILINESTRING", rivers.types), ] %>%  #ignore the geometry collections
   dplyr::filter(sf::st_intersects(x = ., y = this.study.area, sparse = FALSE)) %>%
   sf::st_write(., paste0(scratch.dir, "/", "clip_padus.shp"), delete_layer = TRUE)
 
