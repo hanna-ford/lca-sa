@@ -18,6 +18,8 @@
 # commented packages are either installed at cluster level or
 # ended up not being used.
 
+#install.packages(c("sp", "sf", "rgdal", "stars", "terra", "rgeos", "raster", "proj4", "foreach", "movecost", "stringr", "dplyr", "gdalUtilities", "ggplot2"))
+
 library(sp)
 library(sf)
 library(rgdal) ## will be retired in 2023
@@ -59,9 +61,14 @@ library(ggplot2)
 # storage.outputs <- paste0("/scrfs/storage/hlford/home/data/results")
 # data.outputs <- paste0("/scrfs/storage/hlford/home/data/data_outputs")
 
-storage.inputs.tar <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Zipped Originals")
-storage.inputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Unzipped files")
-scratch.dir <- paste0("C:/Temp/JRobinson/lca-sa")
+# storage.inputs.tar <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Zipped Originals")
+# storage.inputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Unzipped files")
+# scratch.dir <- paste0("C:/Temp/JRobinson/lca-sa")
+
+storage.inputs.tar <- paste0("J:/Box Sync/JoshuaRobinson/Zipped Originals")
+storage.inputs <- paste0("J:/Box Sync/JoshuaRobinson/Unzipped files")
+scratch.dir <- paste0("J:/temp/lca-sa")
+
 
 ##### Set the working directory to scratch
 setwd(scratch.dir)
