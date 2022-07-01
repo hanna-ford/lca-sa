@@ -275,7 +275,7 @@ terra::writeRaster(dem.crl, dst_filename, overwrite = TRUE, format = "GTiff")
 dem.crl.sr <- rast(dem.crl)
 
 # regular sampling
-sample <- terra::spatSample(dem.crl.sr, size = c(10000, 10000), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
+sample <- terra::spatSample(dem.crl.sr, size = c(10), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
 
 #Sanity check: Make a map to see if it all looks correct
 plot(dem.crl.sr)
@@ -290,24 +290,30 @@ writeVector(sample.f3, "sample_f3.shp", filetype="ESRI Shapefile", overwrite=TRU
 plot(dem.crl.sr)
 plot(sample.f3, add = TRUE)
 
+sf3 <- sf::st_read(paste0(scratch.dir, "/sample_f3.shp"))
+
 ################################################################################
 # 1x: MoveCost Calculations ----------
 ################################################################################
 
+for(i in 1:nrow(sf3)) {       # for-loop over rows
+
 mc.1 <- movecost(
-  dtm = dem.crl.sr,
-  origin = sample.f3,
-  destin = sample.f3,
+  dtm = dem.crl,
+  origin = sf3[i, ],
+  destin = sf3,
   studyplot = NULL,
   funct = "t",
   move = 8,
   cogn.slp = FALSE,
   N = 1,
-  return.base = TRUE,
+  return.base = FALSE,
   export = TRUE
 )
 
+gc()
 
+}
 
 ################################################################################
 # Nx: Copy created files to the data output file on my Home Directory ----------
