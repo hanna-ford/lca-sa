@@ -11,14 +11,14 @@
 
 
 ################################################################################
-# Nx: Load required libraries and setup variable ----------
+# 1x: Load required libraries and setup variable ----------
 ################################################################################
 
 # Install required packages
 # commented packages are either installed at cluster level or
 # ended up not being used.
 
-#install.packages(c("sp", "sf", "rgdal", "stars", "terra", "rgeos", "raster", "proj4", "foreach", "movecost", "stringr", "dplyr", "gdalUtilities", "ggplot2"))
+#install.packages(c("sp", "sf", "rgdal", "stars", "terra", "rgeos", "raster", "proj4", "foreach", "doParallel", "movecost", "stringr", "dplyr", "gdalUtilities", "ggplot2"))
 
 library(sp)
 library(sf)
@@ -29,6 +29,7 @@ library(rgeos)
 library(raster)
 library(proj4)
 library(foreach)
+library(doParallel)
 library(movecost)
 library(stringr)
 library(dplyr)
@@ -38,7 +39,6 @@ library(ggplot2)
 #library(snow)
 #library(doSNOW)
 #library(parallel)
-#library(doParallel)
 #library(igraph)
 #library(bigstatsr)
 #library(itertools)
@@ -46,14 +46,15 @@ library(ggplot2)
 #library(lwgeom)
 #library(foreign)
 
-# #### Model 4 output generation - in theory should be the same as the ArcGIS Model.
+# #### Setup for iteration
 # myjob <- Sys.getenv('SLURM_JOB_ID')
-# jobitr <- as.numeric(Sys.getenv('JOBITR'))
+jobitr <- as.numeric(Sys.getenv('JOBITR'))
 # 
-# # comment this out before running in batch; if running single this should indicate which CDL to process (as it would be found in the list model.list.full)
-# jobitr <- 10
+# comment this out before running in batch; if running single this should indicate which CDL to process (as it would be found in the list model.list.full)
+jobitr <- 1
 
 # Setup variables pointing to various directories
+#Fiel locations for Pinnacle
 # scratch.dir <- paste0("/scratch/",myjob)
 # storage.shapefiles <- paste0("/scrfs/storage/hlford/home/data/shapefiles")
 # storage.cdls <- paste0("/scrfs/storage/hlford/home/data/cdls")
@@ -61,10 +62,12 @@ library(ggplot2)
 # storage.outputs <- paste0("/scrfs/storage/hlford/home/data/results")
 # data.outputs <- paste0("/scrfs/storage/hlford/home/data/data_outputs")
 
+#File locations for Teacup
 # storage.inputs.tar <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Zipped Originals")
 # storage.inputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Unzipped files")
 # scratch.dir <- paste0("C:/Temp/JRobinson/lca-sa")
 
+#File locations for Cupcake
 storage.inputs.tar <- paste0("J:/Box Sync/JoshuaRobinson/Zipped Originals")
 storage.inputs <- paste0("J:/Box Sync/JoshuaRobinson/Unzipped files")
 scratch.dir <- paste0("J:/temp/lca-sa")
@@ -84,7 +87,7 @@ rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratch.dir, "
 
 
 ################################################################################
-# Nx: Load required files and setup lists ----------
+# 1x: Load required files and setup lists ----------
 ################################################################################
 
 #untar the DEM (source: OpenTopography SRTM15+), the catchment area (source: OpenTopography SRTM15+), the pit removal (source: Open Topography SRTM15+)
@@ -114,7 +117,7 @@ wc.bg12 <- raster::raster(wc.biog12, RAT = FALSE)
 setwd(scratch.dir)
 
 ################################################################################
-# Nx: Import study area shapefiles ----------
+# 1x: Import lake and river shapefiles ----------
 ################################################################################
 
 #Import the Natural Earth 10m Rivers (source: Natural Earth Physical vectors collection)
@@ -130,13 +133,13 @@ lakes <-
 
 
 ################################################################################
-# 1x: Clip the Shaprefiles to the raster extent ----------
+# 1x: Clip the Shapefiles to the raster extent ----------
 ################################################################################
 
 #Create the cropping extent
-#to determine the extent this is from crs(dem) and then the values are entered here
+#to determine the extent this is from extent(dem) and then the values are entered here
 #if a new DEM is introduced with a different extent, then these values would need to be updated.
-new_extent <- extent(1.491667, 60.37917, -38.92917, 3.725)
+new_extent <- extent(9.795833, 42.18333, -35.95833, -12.25)
 class(new_extent)
 
 #PREP Rivers
@@ -275,7 +278,7 @@ terra::writeRaster(dem.crl, dst_filename, overwrite = TRUE, format = "GTiff")
 dem.crl.sr <- rast(dem.crl)
 
 # regular sampling
-sample <- terra::spatSample(dem.crl.sr, size = c(10000), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
+sample <- terra::spatSample(dem.crl.sr, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
 
 #Sanity check: Make a map to see if it all looks correct
 plot(dem.crl.sr)
@@ -292,28 +295,58 @@ plot(sample.f3, add = TRUE)
 
 sf3 <- sf::st_read(paste0(scratch.dir, "/sample_f3.shp"))
 
+#the points must be a spatial points data frame for the movecost() to work
+sf3 <- sf::as_Spatial(sf3)
+
 ################################################################################
 # 1x: MoveCost Calculations ----------
 ################################################################################
 
-for(i in 1:nrow(sf3)) {       # for-loop over rows
+#Clean up the environment
+#rm(blank.r, dem, dem.cr, dem.crl.sr, lakeR, lakes, lakes.scalerank, lakes.spr, lakes.valid, rivers, rivers.scalerank, rivers.spr, rivers.valid, riversR, wc.b1, wc.b12, wc.bg1, wc.bg12, lakes.raster, rivers.raster, lakes.types, rivers.types)
 
-mc.1 <- movecost(
-  dtm = dem.crl,
-  origin = sf3[1, ],
-  destin = sf3,
-  studyplot = NULL,
-  funct = "t",
-  move = 8,
-  cogn.slp = FALSE,
-  N = 1,
-  return.base = FALSE,
-  export = FALSE
-)
+#force garbage collection
+#gc()
 
-gc()
+#i <- 3
+sf3$uid <- paste0("pt_",1:nrow(sf3))
 
-}
+
+#create a shell spatial lines data frame and populate with a test run to set the tone
+lca.paths <- foreach::foreach(i=1:nrow(sf3), .combine="c") %do% {
+  
+  sf3.a <- sf3[i, ]
+  sf3.b <- sf3[-i, ]
+  
+  #run just the LCPs
+  #run from a single point to all points and back
+  mc.bmc <- movecost::movecomp(
+    dtm = dem.crl,
+    origin = sf3.a,
+    destin = sf3.b,
+    studyplot = NULL,
+    choice = "t",
+    move = 8,
+    cogn.slp = FALSE,
+    N = 1,
+    oneplot = FALSE,
+    return.base = TRUE,
+    export = FALSE
+  )    
+
+  #annotate the line segments
+  mc.bmc$LCPs@data$tag <- paste0("from-",i)
+  mc.bmc$LPCs.back@data$tag <- paste0("to-",i)
+  
+  #append to the spatial lines set
+  tmp1 <- c(mc.bmc$LCPs, mc.bmc$LPCs.back)
+
+}    
+
+
+#plot(mc.bmc$dtm)
+#plot(mc.bmc$LCPs, add = TRUE)
+
 
 ################################################################################
 # Nx: Copy created files to the data output file on my Home Directory ----------
