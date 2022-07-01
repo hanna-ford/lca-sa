@@ -275,7 +275,7 @@ terra::writeRaster(dem.crl, dst_filename, overwrite = TRUE, format = "GTiff")
 dem.crl.sr <- rast(dem.crl)
 
 # regular sampling
-sample <- terra::spatSample(dem.crl.sr, size = c(10), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
+sample <- terra::spatSample(dem.crl.sr, size = c(10000), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
 
 #Sanity check: Make a map to see if it all looks correct
 plot(dem.crl.sr)
@@ -300,7 +300,7 @@ for(i in 1:nrow(sf3)) {       # for-loop over rows
 
 mc.1 <- movecost(
   dtm = dem.crl,
-  origin = sf3[i, ],
+  origin = sf3[1, ],
   destin = sf3,
   studyplot = NULL,
   funct = "t",
@@ -308,7 +308,7 @@ mc.1 <- movecost(
   cogn.slp = FALSE,
   N = 1,
   return.base = FALSE,
-  export = TRUE
+  export = FALSE
 )
 
 gc()
