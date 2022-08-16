@@ -313,7 +313,7 @@ sf3$uid <- paste0("pt_",1:nrow(sf3))
 
 
 #create a shell spatial lines data frame and populate with a test run to set the tone
-lca.paths <- foreach::foreach(i=1:nrow(sf3), .combine="c") %do% {
+lca.paths <- foreach::foreach(i=1:10, .combine="c") %do% {
   
   sf3.a <- sf3[i, ]
   sf3.b <- sf3[-i, ]
@@ -329,11 +329,16 @@ lca.paths <- foreach::foreach(i=1:nrow(sf3), .combine="c") %do% {
     move = 8,
     cogn.slp = FALSE,
     N = 1,
-    oneplot = FALSE,
+    oneplot = TRUE,
     return.base = TRUE,
     export = FALSE
   )    
-
+  
+  #reset the graphics device to avoid issues with plots that can't be turned off
+  #otherwise errors such as, "Error in plot.new() : figure margins too large" will prevent output
+  #if Null is returned then re-set is successful
+  dev.off()
+  
   #annotate the line segments
   mc.bmc$LCPs@data$tag <- paste0("from-",i)
   mc.bmc$LPCs.back@data$tag <- paste0("to-",i)
@@ -344,8 +349,12 @@ lca.paths <- foreach::foreach(i=1:nrow(sf3), .combine="c") %do% {
 }    
 
 
-#plot(mc.bmc$dtm)
-#plot(mc.bmc$LCPs, add = TRUE)
+#unlist the data
+unlist <- do.call(rbind, lca.paths)
+
+#sanity check - plot the data so far
+plot(dem.crl)
+plot(unlist, add = TRUE)
 
 
 ################################################################################
