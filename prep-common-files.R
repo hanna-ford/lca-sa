@@ -53,8 +53,8 @@ library(ggplot2)
 # Setup for iteration
 # When preparing in an interactive, virtual session the myjob and jobitr variables
 #  will need to be set manually unless a slurm job exists for the session.
-# myjob <- Sys.getenv('SLURM_JOB_ID')
-jobitr <- as.numeric(Sys.getenv('JOBITR'))
+myjob <- Sys.getenv('SLURM_JOB_ID')
+# jobitr <- as.numeric(Sys.getenv('JOBITR'))
 
 # comment this out before running in batch; 
 # if running single this should indicate which point is being processed
@@ -65,9 +65,9 @@ jobitr <- 1
 # the base files will need to be uploaded to Pinnacle.
 
 scratch.dir <- paste0("/scratch/", myjob)
-storage.inputs <- paste0("/scrfs/storage/hlford/home/data/varinputs")
-storage.outputs <- paste0("/scrfs/storage/hlford/home/data/results")
-data.outputs <- paste0("/scrfs/storage/hlford/home/data/data_outputs")
+storage.inputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/varinputs")
+storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
+data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
 
 ## Set the working directory to scratch
 setwd(scratch.dir)
@@ -108,12 +108,12 @@ setwd(scratch.dir)
 
 # Import the Natural Earth 10m Rivers (source: Natural Earth Physical vectors collection)
 rivers <-
-  sf::st_read(paste0(storage.inputs, "/ne_10m_rivers_lake_centerlines_scale_rank/ne_10m_rivers_lake_centerlines_scale_rank.shp")) %>%
+  sf::st_read(paste0(storage.inputs, "/ne_10m_rivers_lake_centerlines_scale_rank.shp")) %>%
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
 
 lakes <-
-  sf::st_read(paste0(storage.inputs, "/ne_10m_lakes/ne_10m_lakes.shp")) %>%
+  sf::st_read(paste0(storage.inputs, "/ne_10m_lakes.shp")) %>%
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
 
