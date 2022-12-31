@@ -53,8 +53,8 @@ library(ggplot2)
 # Setup for iteration
 # When preparing in an interactive, virtual session the myjob and jobitr variables
 #  will need to be set manually unless a slurm job exists for the session.
-# myjob <- Sys.getenv('SLURM_JOB_ID')
-jobitr <- as.numeric(Sys.getenv('JOBITR'))
+myjob <- Sys.getenv('SLURM_JOB_ID')
+# jobitr <- as.numeric(Sys.getenv('JOBITR'))
 
 # comment this out before running in batch; 
 # if running single this should indicate which point is being processed
@@ -65,9 +65,9 @@ jobitr <- 1
 # the base files will need to be uploaded to Pinnacle.
 
 scratch.dir <- paste0("/scratch/", myjob)
-storage.inputs <- paste0("/scrfs/storage/hlford/home/data/varinputs")
-storage.outputs <- paste0("/scrfs/storage/hlford/home/data/results")
-data.outputs <- paste0("/scrfs/storage/hlford/home/data/data_outputs")
+storage.inputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/varinputs")
+storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
+data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
 
 ## Set the working directory to scratch
 setwd(scratch.dir)
@@ -86,16 +86,16 @@ raster::rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratc
 
 
 # untar the DEM (source: OpenTopography SRTM15+), the catchment area (source: OpenTopography SRTM15+), the pit removal (source: Open Topography SRTM15+)
-dem.untar <-  utils::untar(paste0(storage.inputs,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
+dem.untar <-  utils::untar(paste0(storage.inputs,"/SAraster_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
 # make a raster out of the the tar file; cropping will happen below
-dem <- raster::raster(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
+dem <- terra::rast(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
 
 # update the crs on all the files so they are the same
-raster::crs(dem)
+terra::crs(dem)
 
 # set the crs for this project
-crs.thisproject <- raster::crs(dem)
+crs.thisproject <- terra::crs(dem)
 
 # Cleanup intermediate files
 rm(dem.untar)
@@ -108,12 +108,12 @@ setwd(scratch.dir)
 
 # Import the Natural Earth 10m Rivers (source: Natural Earth Physical vectors collection)
 rivers <-
-  sf::st_read(paste0(storage.inputs, "/ne_10m_rivers_lake_centerlines_scale_rank/ne_10m_rivers_lake_centerlines_scale_rank.shp")) %>%
+  sf::st_read(paste0(storage.inputs, "/ne_10m_rivers_lake_centerlines_scale_rank.shp")) %>%
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
 
 lakes <-
-  sf::st_read(paste0(storage.inputs, "/ne_10m_lakes/ne_10m_lakes.shp")) %>%
+  sf::st_read(paste0(storage.inputs, "/ne_10m_lakes.shp")) %>%
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
 
@@ -124,7 +124,7 @@ lakes <-
 # Create the cropping extent
 # to determine the extent this is from extent(dem) and then the values are entered here
 # if a new DEM is introduced with a different extent, then these values would need to be updated.
-new_extent <- extent(9.795833, 42.18333, -35.95833, -12.25)
+new_extent <- extent(6.67916666666684, 42.1875000000002, -37.5666666666668, 3.17499999999991)
 class(new_extent)
 
 # PREP Rivers
@@ -154,7 +154,7 @@ rivers.scalerank <- clip.rivers.clean[which(clip.rivers.clean$scalerank >= 7), ]
 rm(rivers, rivers.valid, rivers.types, clip.rivers, clip.rivers.clean)
 
 # Export results to folder for use later
-sf::st_write(rivers.scalerank, paste0(storage.dir, "/", "clip_rivers_sr.shp"), delete_layer = TRUE) 
+sf::st_write(rivers.scalerank, paste0(storage.outputs, "/", "clip_rivers_sr.shp"), delete_layer = TRUE) 
 
 # PREP Lakes
 lakes.valid <- lakes[which(!is.na(lakes$scalerank)), ]
@@ -169,7 +169,7 @@ unique(lakes.types)
 clip.lakes <-
   lakes.valid[grepl("*MULTIPOLYGON", lakes.types), ] %>%  #ignore the geometry collections
   sf::st_crop(x = ., y = new_extent) %>%
-  sf::st_write(., paste0(storage.dir, "/", "clip_lakes.shp"), delete_layer = TRUE) 
+  sf::st_write(., paste0(storage.outputs, "/", "clip_lakes.shp"), delete_layer = TRUE) 
 
 # Drop the un-needed fields
 clip.lakes.clean <- clip.lakes[,-(15:41)]
@@ -183,7 +183,7 @@ lakes.scalerank <- clip.lakes.clean[which(clip.lakes.clean$scalerank <= 3), ]
 rm(lakes, lakes.valid, lakes.types, clip.lakes, clip.lakes.clean)
 
 # Export results to folder for use later
-sf::st_write(lakes.scalerank, paste0(storage.dir, "/", "clip_lakes_sr.shp"), delete_layer = TRUE) 
+sf::st_write(lakes.scalerank, paste0(storage.outputs, "/", "clip_lakes_sr.shp"), delete_layer = TRUE) 
 
 
 # 5: Buffer rivers based on scale rank and combine polygons with lakes as "Barrier" ----------
@@ -201,7 +201,7 @@ barrier <- rbind(lakes.scalerank, rivers.buffer)
 # PREP the barrier files and export results to folder for use later
 barrier.valid <- barrier[which(!is.na(barrier$scalerank)), ]
 barrier.sp <- as(barrier.valid, "Spatial")
-sf::st_write(barrier.valid, paste0(storage.dir, "/", "barrier_sp.shp"), delete_layer = TRUE) 
+sf::st_write(barrier.valid, paste0(storage.outputs, "/", "barrier_sp.shp"), delete_layer = TRUE) 
 
 # Cleanup intermediate files
 rm(rivers.scalerank, rivers.scalerank.buffer, lakes.scalerank, rivers.buffer, barrier, barrier.valid)
@@ -224,9 +224,9 @@ blank.r <- raster::setValues(dem, NA)
 # Destination dataset (raster dataset to be written/burned to)
 dst_filename <- paste0("barriers",".tif",sep = "")
 # # Export results to folder for use later
-terra::writeRaster(blank.r, dst_filename, overwrite = TRUE, format = "GTiff")
+terra::writeRaster(blank.r, dst_filename, overwrite = TRUE)
 
-barrier.path <- paste0(storage.dir, "/", "barrier_sp.shp")
+barrier.path <- paste0(storage.outputs, "/", "barrier_sp.shp")
 
 # Rasterize the dataset using gdal outside of R; bring result back into R
 # Note that this is set by at=TRUE to burn all pixels that are touched by the vector
@@ -241,8 +241,8 @@ barrier.rast<- raster::raster(barriers.rastmp)
 # Make the zeros NAs and make elevation <= -125 == zero as well; 
 # this is to adjust the "coastline" per publication notes
 
-dem.2 <- calc(dem, fun=function(x){ x[x == 0] <- NA; return(x)} )
-dem.2 <- calc(dem, fun=function(x){ x[x <= -125] <- NA; return(x)} )
+dem.2 <- calc(raster(dem), fun=function(x){ x[x == 0] <- NA; return(x)} )
+dem.2 <- calc(raster(dem), fun=function(x){ x[x <= -125] <- NA; return(x)} )
 
 plot(dem.2)
 
@@ -250,7 +250,7 @@ plot(dem.2)
 dem.3 <- rast(dem.2)
 
 # Create a regular sampling grid over the dem
-sample <- terra::spatSample(dem.3, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
+sample <- terra::spatSample(dem.3, size = c(1000), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
 
 #Sanity check: Make a map to see if it all looks correct
 plot(dem.3)
