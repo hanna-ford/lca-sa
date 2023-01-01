@@ -1,4 +1,3 @@
-################################################################################
 # Where to run
 # This is the "development" script where the process is tested on a small area 
 # and can be run on a local machine. This script includes both the pre-processing of the common
@@ -13,15 +12,13 @@
 # 6. Create raster data versions of barriers - Single serial step
 # 7. Create Grid of Sample Points, limit to points along edges of study area - Single serial step
 # 8. MoveCost Calculations - Parallel step
-################################################################################
 
 
-################################################################################
 ## 1x: Load required libraries and setup variable ----------
 
+
 ## Install required packages
-## commented packages are either installed at cluster level or
-## ended up not being used.
+## commented packages are either installed at cluster level or ended up not being used.
 
 #install.packages(c("sp", "sf", "rgdal", "stars", "terra", "rgeos", "raster", "proj4", "foreach", "doParallel", "movecost", "stringr", "dplyr", "gdalUtilities", "ggplot2"))
 
@@ -51,32 +48,31 @@ library(ggplot2)
 #library(lwgeom)
 #library(foreign)
 
-# #### Setup for iteration
-# myjob <- Sys.getenv('SLURM_JOB_ID')
-jobitr <- as.numeric(Sys.getenv('JOBITR'))
+# Setup for iteration
+# When preparing in an interactive, virtual session the myjob and jobitr variables
+#  will need to be set manually unless a slurm job exists for the session.
+myjob <- Sys.getenv('SLURM_JOB_ID')
+# jobitr <- as.numeric(Sys.getenv('JOBITR'))
 
-# comment this out before running in batch; if running single this should indicate which CDL to process (as it would be found in the list model.list.full)
+# comment this out before running in batch; 
+# if running single this should indicate which point is being processed
 jobitr <- 1
 
-## Setup variables pointing to various directories
-## Field locations for Pinnacle
-# scratch.dir <- paste0("/scratch/",myjob)
-# storage.shapefiles <- paste0("/scrfs/storage/hlford/home/data/shapefiles")
-# storage.cdls <- paste0("/scrfs/storage/hlford/home/data/cdls")
-# storage.inputs <- paste0("/scrfs/storage/hlford/home/data/varinputs")
-# storage.outputs <- paste0("/scrfs/storage/hlford/home/data/results")
-# data.outputs <- paste0("/scrfs/storage/hlford/home/data/data_outputs")
+# Setup variables pointing to various directories
+# These are the locations for Pinnacle - note that before running the script
+# the base files will need to be uploaded to Pinnacle.
 
-## File locations for Teacup
-# storage.inputs.tar <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Zipped Originals")
-# storage.inputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/Unzipped files")
-# scratch.dir <- paste0("C:/Temp/JRobinson/lca-sa")
+# # File locations for Pinnacle
+# scratch.dir <- paste0("/scratch/", myjob)
+# storage.inputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/varinputs")
+# storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
+# data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
 
 ## File locations for Cupcake
-storage.inputs.tar <- paste0("J:/Box Sync/JoshuaRobinson/Zipped Originals")
-storage.inputs <- paste0("J:/Box Sync/JoshuaRobinson/Unzipped files")
 scratch.dir <- paste0("J:/temp/lca-sa")
-
+storage.inputs <- paste0("J:/Box Sync/JoshuaRobinson/Unzipped files")
+storage.outputs <- paste0("J:/Box Sync/JoshuaRobinson/lca-sa")
+data.outputs <- paste0("J:/Box Sync/JoshuaRobinson/lca-sa")
 
 ## Set the working directory to scratch
 setwd(scratch.dir)
@@ -85,62 +81,52 @@ setwd(scratch.dir)
 ## Check if the folder "Data" exists in the current directory, if not creates it
 ifelse(!dir.exists("./tmp/"), dir.create("./tmp/"), "Folder exists already")
 
-
 ## set some of the options that will be used frequently
 ## including where the tmp directory will be
 raster::rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratch.dir, "/tmp/"), timer = TRUE)
-################################################################################
 
-################################################################################
+
 ## 2x: Load required files and setup lists ----------
 
+
 # untar the DEM (source: OpenTopography SRTM15+), the catchment area (source: OpenTopography SRTM15+), the pit removal (source: Open Topography SRTM15+)
-dem.untar <-  utils::untar(paste0(storage.inputs.tar,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
+dem.untar <-  utils::untar(paste0(storage.inputs,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
 # make a raster out of the the tar file; cropping will happen below
-dem <- raster::raster(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
+dem <- terra::rast(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
 
 # update the crs on all the files so they are the same
-raster::crs(dem)
+terra::crs(dem)
 
 # set the crs for this project
-crs.thisproject <- raster::crs(dem)
-
-## Import the World Clim data (source: )
-## Holding off on this until we get it running without climate data.
-# setwd(storage.inputs)
-# wc.bio1 <- paste0(storage.inputs, "/lig_30s_bio/lig_30s_bio_1.bil")
-# wc.bio12 <- paste0(storage.inputs, "/lig_30s_bio/lig_30s_bio_12.bil")
-# wc.biog1 <- paste0(storage.inputs, "/wc_2_5m_CCSM_21k_bio/2_5m/wc_2_5m_CCSM_21k_bio_1.bil")
-# wc.biog12 <- paste0(storage.inputs, "/wc_2_5m_CCSM_21k_bio/2_5m/wc_2_5m_CCSM_21k_bio_12.bil")
-# 
-# wc.b1 <- raster::raster(wc.bio1, RAT = FALSE)
-# wc.b12 <- raster::raster(wc.bio12, RAT = FALSE)
-# wc.bg1 <- raster::raster(wc.biog1, RAT = FALSE)
-# wc.bg12 <- raster::raster(wc.biog12, RAT = FALSE)
+crs.thisproject <- terra::crs(dem)
 
 # Cleanup intermediate files
 rm(dem.untar)
 
 setwd(scratch.dir)
-################################################################################
 
-################################################################################
+
 # 3x: Import lake and river shapefiles ----------
+
 
 # Import the Natural Earth 10m Rivers (source: Natural Earth Physical vectors collection)
 rivers <-
-  sf::st_read(paste0(storage.inputs, "/ne_10m_rivers_lake_centerlines_scale_rank/ne_10m_rivers_lake_centerlines_scale_rank.shp")) %>%
+  sf::st_read(paste0(storage.inputs, "/ne_10m_rivers_lake_centerlines_scale_rank.shp")) %>%
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
 
 lakes <-
-  sf::st_read(paste0(storage.inputs, "/ne_10m_lakes/ne_10m_lakes.shp")) %>%
+  sf::st_read(paste0(storage.inputs, "/ne_10m_lakes.shp")) %>%
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
-################################################################################
 
-################################################################################
+coast <-
+  sf::st_read(paste0(storage.inputs, "/ne_10m_coastline.shp")) %>%
+  sf::st_transform(., crs.thisproject) %>%
+  sf::st_make_valid(.)
+
+
 # 4x: Clip the river and lakes shapefiles to the raster extent ----------
 
 # Create the cropping extent
@@ -148,6 +134,23 @@ lakes <-
 # if a new DEM is introduced with a different extent, then these values would need to be updated.
 new_extent <- extent(9.795833, 42.18333, -35.95833, -12.25)
 class(new_extent)
+
+
+# PREP Coast
+coast.valid <- coast[which(!is.na(coast$scalerank)), ]
+
+# convert to a single geometry
+coast.types <- vapply(sf::st_geometry(coast.valid), function(x) {
+  class(x)[2]
+}, "")
+
+unique(coast.types)
+
+clip.coast <-
+  coast.valid[grepl("*MULTILINESTRING", coast.types), ] %>%  #ignore the geometry collections
+  sf::st_crop(x = ., y = new_extent) %>%
+  sf::st_write(., paste0(scratch.dir, "/", "clip_coast.shp"), delete_layer = TRUE) 
+
 
 # PREP Rivers
 rivers.valid <- rivers[which(!is.na(rivers$scalerank)), ]
@@ -175,13 +178,14 @@ rivers.scalerank <- clip.rivers.clean[which(clip.rivers.clean$scalerank >= 7), ]
 # Cleanup intermediate files
 rm(rivers, rivers.valid, rivers.types, clip.rivers, clip.rivers.clean)
 
-# Export as shapefile (not needed in HPC version)
-# sf::st_write(rivers.scalerank.buffer, paste0(scratch.dir, "/", "clip_rivers_sr.shp"), delete_layer = TRUE) 
+# Export results to folder for use later
+sf::st_write(rivers.scalerank, paste0(storage.outputs, "/", "clip_rivers_sr.shp"), delete_layer = TRUE) 
+
 
 # PREP Lakes
 lakes.valid <- lakes[which(!is.na(lakes$scalerank)), ]
 
-# convert to a single geometry
+# Convert to a single geometry
 lakes.types <- vapply(sf::st_geometry(lakes.valid), function(x) {
   class(x)[2]
 }, "")
@@ -191,7 +195,7 @@ unique(lakes.types)
 clip.lakes <-
   lakes.valid[grepl("*MULTIPOLYGON", lakes.types), ] %>%  #ignore the geometry collections
   sf::st_crop(x = ., y = new_extent) %>%
-  sf::st_write(., paste0(scratch.dir, "/", "clip_lakes.shp"), delete_layer = TRUE) 
+  sf::st_write(., paste0(storage.outputs, "/", "clip_lakes.shp"), delete_layer = TRUE) 
 
 # Drop the un-needed fields
 clip.lakes.clean <- clip.lakes[,-(15:41)]
@@ -204,110 +208,121 @@ lakes.scalerank <- clip.lakes.clean[which(clip.lakes.clean$scalerank <= 3), ]
 # Cleanup intermediate files
 rm(lakes, lakes.valid, lakes.types, clip.lakes, clip.lakes.clean)
 
-# Export as shapefile (not needed in HPC version)
-# sf::st_write(lakes.scalerank, paste0(scratch.dir, "/", "clip_lakes_sr.shp"), delete_layer = TRUE) 
+# Export results to folder for use later
+sf::st_write(lakes.scalerank, paste0(storage.outputs, "/", "clip_lakes_sr.shp"), delete_layer = TRUE) 
 
-################################################################################
 
-################################################################################
 # 5x: Buffer rivers based on scale rank and combine polgons with lakes as "Barrier" ----------
 
-# Create buffer around rivers (30m-total / 15m-each side)
+
+# Create buffer around rivers (100m-total / 50m-each side)
+# This can be changed, but recommend testing changes in base script before implementing on larger scale.
 rivers.scalerank.buffer <- terra::buffer(vect(rivers.scalerank), 100)
 rivers.buffer <- sf::st_as_sf(rivers.scalerank.buffer)
 
 # Combine buffered rivers and lakes
 barrier <- rbind(lakes.scalerank, rivers.buffer)
 
-# PREP Barrier
+# PREP the barrier files and export results to folder for use later
 barrier.valid <- barrier[which(!is.na(barrier$scalerank)), ]
 barrier.sp <- as(barrier.valid, "Spatial")
-sf::st_write(barrier.valid, paste0(scratch.dir, "/", "barrier_sp.shp"), delete_layer = TRUE) 
+sf::st_write(barrier.valid, paste0(storage.outputs, "/", "barrier_sp.shp"), delete_layer = TRUE) 
 
 # Cleanup intermediate files
 rm(rivers.scalerank, rivers.scalerank.buffer, lakes.scalerank, rivers.buffer, barrier, barrier.valid)
 
 # Sanity check: Make a map to see if it all looks correct
-# Not needed in HPC version
 plot(dem)
-# plot(rivers.scalerank["scalerank"], add=TRUE)
-# plot(lakes.scalerank["scalerank"], add = TRUE)
-# plot(rivers.scalerank.buffer, add = TRUE)
 plot(barrier.sp, add=TRUE)
-################################################################################
 
-################################################################################
+
 # 6x: Create raster data versions of barriers ----------
 
-#create a blank raster on to which the polys will be rasterized
+# While movecost indicates that it is looking for a spatial lines or poly file for this input,
+# I have not had success in getting that to work, however, a raster version does seem to work
+# and is an expected input of the underlying process from leastcostpath package.
+
+# Create a blank raster on to which the polys will be rasterized
 blank.r <- raster::setValues(dem, NA)
 
-#destination dataset (raster dataset to be written/burned to)
+# Destination dataset (raster dataset to be written/burned to)
 dst_filename <- paste0("barriers",".tif",sep = "")
-terra::writeRaster(blank.r, dst_filename, overwrite = TRUE, format = "GTiff")
+# # Export results to folder for use later
+terra::writeRaster(blank.r, dst_filename, overwrite = TRUE)
 
-barrier.path <- paste0(scratch.dir, "/", "barrier_sp.shp")
+barrier.path <- paste0(storage.outputs, "/", "barrier_sp.shp")
 
-#rasterize the dataset using gdal outside of R; bring result back into R
-#note that this is set by at=TRUE to burn all pixels that are touched by the vector
+# Rasterize the dataset using gdal outside of R; bring result back into R
+# Note that this is set by at=TRUE to burn all pixels that are touched by the vector
 barriers.rastmp <- gdalUtilities::gdal_rasterize(barrier.path, dst_filename, b=1, at=TRUE, a="scalerank")
 
 barrier.rast<- raster::raster(barriers.rastmp)
 
-#plot(barrier.rast)
 
-#################################################################################
-
-################################################################################
 # 7x: Create Grid of Sample Points ----------
 
-# make the zeros NAs and make elevation <= -125 == zero as well; this is to adjust the "coastline" per publication notes
 
-dem.2 <- calc(dem, fun=function(x){ x[x == 0] <- NA; return(x)} )
-dem.2 <- calc(dem, fun=function(x){ x[x <= -125] <- NA; return(x)} )
+# Make the zeros NAs and make elevation <= -125 == zero as well; 
+# this is to adjust the "coastline" per publication notes
+
+dem.2 <- calc(raster(dem), fun=function(x){ x[x == 0] <- NA; return(x)} )
+dem.2 <- calc(raster(dem), fun=function(x){ x[x <= -125] <- NA; return(x)} )
 
 plot(dem.2)
 
-#destination dataset (raster dataset to be written/burned to)
-#dst_filename <- paste0("dem",".tif",sep = "")
-#terra::writeRaster(dem, dst_filename, overwrite = TRUE, format = "GTiff")
+# This whole bit is for testing where no coastline exits:
+  #casting as a spatial raster "spatRaster"
+  dem.3 <- rast(dem.2)
+  
+  # regular sampling
+  sample <- terra::spatSample(dem.3, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
+  
+  #Sanity check: Make a map to see if it all looks correct
+  plot(dem.3)
+  plot(sample, add = TRUE)
+  
+  sample.f2 <- as(sample, "Spatial")
+  
+  #Filtering for only points on land >= -125m
+  sample.f3 <- sample.f2[which(sample.f2@data$layer >= -125), ]
+  sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f3))
+  sample.f3.extent <- vect(sample.f3.bbox)
+  sample.f3.buffer.int <- terra::buffer(sample.f3.extent, -10000)
+  sample.f4 <- vect(sample.f3)
+  sample.final.sv <- terra::erase(sample.f4, sample.f3.buffer.int)
 
-#casting as a spatial raster "spatRaster"
-dem.3 <- rast(dem.2)
-
-# regular sampling
-sample <- terra::spatSample(dem.3, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
-
-#Sanity check: Make a map to see if it all looks correct
-plot(dem.3)
-plot(sample, add = TRUE)
+# # This bit is for testing once we have coastline on all sides 
+#   # setting the clipped coast as SpatVector
+#   clip.coast.vect <- terra::vect(clip.coast)
+#   
+#   # creating a buffer of the coast
+#   coast.buffer.int <- terra::buffer(clip.coast.vect, -10000)
+#   
+#   # sampling within the coastal buffer only
+#   sample <- terra::spatSample(coast.buffer.int, size = c(250), method="random")
+#   
+#   # Sanity check: Make a map to see if it all looks correct
+#   plot(dem.2)
+#   plot(coast.buffer.int, add=TRUE)
+#   plot(sample, add = TRUE)
 
 sample.f2 <- as(sample, "Spatial")
 
-#Filtering for only points on land >= -125m
-sample.f3 <- sample.f2[which(sample.f2@data$layer >= -125), ]
-sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f3))
-sample.f3.extent <- vect(sample.f3.bbox)
-sample.f3.buffer.int <- terra::buffer(sample.f3.extent, -10000)
-sample.f4 <- vect(sample.f3)
-sample.final.sv <- terra::erase(sample.f4, sample.f3.buffer.int)
-
-#Sanity check: Make a map to see if it all looks correct
-plot(dem.3)
-plot(sample.f3, add = TRUE)
-plot(sample.final.sv, col="green", add=TRUE)
+# Sanity check: Make a map to see if it all looks correct
+plot(dem.2)
+plot(sample.f2, add = TRUE)
+plot(sample.final.sv, add=TRUE, col="green")
 plot(barrier.sp, col="blue", add=TRUE)
 
-#the points must be a spatial points data frame for the movecost() to work
-#terra::writeVector(sample.final.sv, "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
+# Export results to folder for use later
+terra::writeVector(sample.final.sv, "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
 
 # Cleanup intermediate files
-rm(dem, dem.2, sample, sample.f2, sample.f3, sample.f3.bbox, sample.f3.buffer.int, sample.f3.extent, sample.f4)
+rm(dem, sample, sample.f2, sample.f3, sample.f3.bbox, sample.f3.buffer.int, sample.f3.extent, sample.f4)
 
-################################################################################
 
-################################################################################
 # 8x: MoveCost Calculations ----------
+
 
 sample.final.sp <- as(sample.final.sv, "Spatial")
   # sf::st_read(paste0(scratch.dir, "/sample_final.shp")) %>%
@@ -371,9 +386,8 @@ unlist <- do.call(rbind, lca.paths)
 plot(dem.3)
 plot(unlist, add = TRUE)
 plot(barrier.sp, add=TRUE)
-################################################################################
 
-################################################################################
+
 # Nx: Copy created files to the data output file on my Home Directory ----------
  
 #Copied all scratch files over to varinputs, so I don't have to re-run everything
