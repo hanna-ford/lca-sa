@@ -32,9 +32,12 @@ library(terra)
 library(rgeos)
 library(raster)
 library(proj4)
+library(Matrix)
+library(gdistance)
+library(leastcostpath) ## movecost is built off this and gdistance, planning to use those directly
 library(foreach)
 library(doParallel)
-library(movecost)
+#library(movecost) ## building a new version that doesn't use this
 library(stringr)
 library(dplyr)
 library(gdalUtilities)
@@ -64,10 +67,10 @@ jobitr <- 1
 # These are the locations for Pinnacle - note that before running the script
 # the base files will need to be uploaded to Pinnacle.
 
-scratch.dir <- paste0("/scratch/", myjob)
-storage.inputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/varinputs")
-storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
-data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
+# scratch.dir <- paste0("/scratch/", myjob)
+# storage.inputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/varinputs")
+# storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
+# data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
 
 ## File locations for Cupcake
 scratch.dir <- paste0("J:/temp/lca-sa")
