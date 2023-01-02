@@ -37,12 +37,12 @@ library(gdistance)
 library(leastcostpath) ## movecost is built off this and gdistance, planning to use those directly
 library(foreach)
 library(doParallel)
-#library(movecost) ## building a new version that doesn't use this
 library(stringr)
 library(dplyr)
 library(gdalUtilities)
 library(ggplot2)
 
+#library(movecost)
 #library(snow)
 #library(doSNOW)
 #library(parallel)
@@ -72,11 +72,17 @@ jobitr <- 1
 # storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
 # data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
 
-## File locations for Cupcake
-scratch.dir <- paste0("J:/temp/lca-sa")
-storage.inputs <- paste0("J:/Box Sync/JoshuaRobinson/Unzipped files")
-storage.outputs <- paste0("J:/Box Sync/JoshuaRobinson/lca-sa")
-data.outputs <- paste0("J:/Box Sync/JoshuaRobinson/lca-sa")
+# ## File locations for Cupcake
+# scratch.dir <- paste0("J:/temp/lca-sa")
+# storage.inputs <- paste0("J:/Box Sync/JoshuaRobinson/lca-sa/varinputs")
+# storage.outputs <- paste0("J:/Box Sync/JoshuaRobinson/lca-sa/results")
+# data.outputs <- paste0("J:/Box Sync/JoshuaRobinson/lca-sa/dataoutputs")
+
+# ## File locations for Teacup
+# scratch.dir <- paste0("C:/Temp/JRobinson/lca-sa")
+# storage.inputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/lca-sa/varinputs")
+# storage.outputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/lca-sa/results")
+# data.outputs <- paste0("C:/Users/hlford/Box/JoshuaRobinson/lca-sa/dataoutputs")
 
 ## Set the working directory to scratch
 setwd(scratch.dir)
@@ -84,7 +90,6 @@ setwd(scratch.dir)
 ## create required directories, if needed
 ## Check if the folder "Data" exists in the current directory, if not creates it
 ifelse(!dir.exists("./tmp/"), dir.create("./tmp/"), "Folder exists already")
-
 
 ## set some of the options that will be used frequently
 ## including where the tmp directory will be
@@ -94,8 +99,8 @@ raster::rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratc
 ## 2: Load required files and setup lists ----------
 
 
-# untar the DEM (source: OpenTopography SRTM15+), the catchment area (source: OpenTopography SRTM15+), the pit removal (source: Open Topography SRTM15+)
-dem.untar <-  utils::untar(paste0(storage.inputs,"/SAraster_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
+# untar the DEM (source: OpenTopography SRTM15+)
+dem.untar <-  utils::untar(paste0(storage.inputs,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
 # make a raster out of the the tar file; cropping will happen below
 dem <- terra::rast(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
@@ -108,8 +113,6 @@ crs.thisproject <- terra::crs(dem)
 
 # Cleanup intermediate files
 rm(dem.untar)
-
-setwd(scratch.dir)
 
 
 # 3: Import lake and river shapefiles ----------
@@ -138,7 +141,10 @@ coast <-
 # Create the cropping extent
 # to determine the extent this is from extent(dem) and then the values are entered here
 # if a new DEM is introduced with a different extent, then these values would need to be updated.
-new_extent <- extent(6.67916666666684, 42.1875000000002, -37.5666666666668, 3.17499999999991)
+
+ext(dem)
+
+new_extent <- extent(26.7958333333335, 29.7291666666669, -30.8916666666668, -28.4208333333334)
 class(new_extent)
 
 
@@ -243,14 +249,30 @@ plot(dem)
 plot(barrier.sp, add=TRUE)
 
 
-# 6x: Create raster data versions of barriers ----------
+# 6: create a slope-based cost surface ----------
 
 
-# While movecost indicates that it is looking for a spatial lines or poly file for this input,
-# I have not had success in getting that to work, however, a raster version does seem to work
-# and is an expected input of the underlying process from leastcostpath package.
+# cost functions currently implemented within leastcostpath
 
-# Create a blank raster on to which the polys will be rasterized
+cfs <- c("tobler", "tobler offpath", "irmischer-clarke male", 
+         "irmischer-clarke offpath male", "irmischer-clarke female", 
+         "irmischer-clarke offpath female","modified tobler", 
+         "wheeled transport", "herzog", "llobera-sluckin", "campbell 2019")
+
+# neighbors can be 4, 8, 16, 32, or 48. A greater number of neighbors will result in cost surface and LCP approximating reality better - but be aware that above 8 there is the possibility to "jump" barriers.
+
+neigh <- 8
+
+slope_cs <- leastcostpath::create_slope_cs(dem = raster(dem), cost_function = "tobler", neighbours = neigh)
+
+plot(raster(slope_cs), col = grey.colors(100))
+plot(barrier.sp, add=TRUE)
+
+
+# 7: Create barrier cost surface ----------
+
+
+# Create a blank raster on to which the river and lake barrier polys will be rasterized
 blank.r <- raster::setValues(dem, NA)
 
 # Destination dataset (raster dataset to be written/burned to)
@@ -266,111 +288,106 @@ barriers.rastmp <- gdalUtilities::gdal_rasterize(barrier.path, dst_filename, b=1
 
 barrier.rast<- raster::raster(barriers.rastmp)
 
+plot(barrier.rast)
 
-# 7x: Create Grid of Sample Points ----------
-
-
-# Make the zeros NAs and make elevation <= -125 == zero as well; 
+# Create a barrier of altitude values less than or equal to -125
 # this is to adjust the "coastline" per publication notes
+# The altitude limitation can be changed, but should be tested if changing
 
-dem.2 <- calc(raster(dem), fun=function(x){ x[x == 0] <- NA; return(x)} )
-dem.2 <- calc(raster(dem), fun=function(x){ x[x <= -125] <- NA; return(x)} )
+altitude <- dem <= -125
+altitude[altitude == 0] <- NA
 
-plot(dem.2)
+plot(altitude)
 
-# setting the clipped coast as SpatVector
-clip.coast.vect <- terra::vect(clip.coast)
+altitude.raster <- raster(altitude)
 
-# creating a buffer of the coast
-coast.buffer.int <- terra::buffer(clip.coast.vect, -10000)
+# the values NOT NA will be assigned the field argument value. If [the field arg] is 0 (default) then movement within the area will be completely prohibited
+# natural_cs adopts the river and lake barriers
+natural_cs <- leastcostpath::create_barrier_cs(raster = barrier.rast, barrier = barrier.rast, neighbours = neigh, field = 0, background = 1)
 
-# sampling within the coastal buffer only
-sample <- terra::spatSample(coast.buffer.int, size = c(250), method="random")
+# altitude_cs adopts the altitude barriers
+altitude_cs <- leastcostpath::create_barrier_cs(raster = altitude.raster, barrier = altitude.raster, neighbours = neigh, field = 0, background = 1)
+
+plot(raster(altitude_cs))
+plot(raster(natural_cs))
+
+# multiplying the two cost surfaces ensures that barriers continue to completely inhibit movement (i.e. slope_cs values * 0 = 0)
+pre_cs <- natural_cs * altitude_cs
+slope_altitude_cs <- slope_cs * pre_cs
+
+plot(raster(slope_altitude_cs), col = grey.colors(100))
+
+# 8: Create Grid of Sample Points ----------
+
+
+# This bit is for testing where no coastline exits:
+  # regular sampling
+  sample <- terra::spatSample(dem, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
+  
+  #Sanity check: Make a map to see if it all looks correct
+  plot(dem)
+  plot(sample, add = TRUE)
+  
+  #Filtering for only points around edges
+  sample.f2 <- as(sample, "Spatial")
+  sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f2))
+  sample.f3.buffer.int <- terra::buffer(vect(sample.f3.bbox), -10000)
+  sample.final.sv <- terra::erase(sample, sample.f3.buffer.int)
+
+  
+# # This bit is for testing once we have coastline on all sides 
+#   # setting the clipped coast as SpatVector
+#   clip.coast.vect <- terra::vect(clip.coast)
+#   
+#   # creating a buffer of the coast
+#   coast.buffer.int <- terra::buffer(clip.coast.vect, -10000)
+#   
+#   # sampling within the coastal buffer only
+#   sample <- terra::spatSample(coast.buffer.int, size = c(250), method="random")
+#   
+#   # Sanity check: Make a map to see if it all looks correct
+#   plot(dem.2)
+#   plot(coast.buffer.int, add=TRUE)
+#   plot(sample, add = TRUE)
+
 
 # Sanity check: Make a map to see if it all looks correct
-plot(dem.2)
-plot(coast.buffer.int, add=TRUE)
+plot(raster(slope_altitude_cs), col = grey.colors(100))
 plot(sample, add = TRUE)
-
-sample.f2 <- as(sample, "Spatial")
-
-# Filtering for only points on time-scale adjusted coastal boundaries and above >= -125m
-# sample.f3 <- sample.f2[which(sample.f2@data$layer >= -125), ]
-
-# Sanity check: Make a map to see if it all looks correct
-plot(dem.2)
-plot(sample.f2, add = TRUE)
-plot(barrier.sp, col="blue", add=TRUE)
+plot(sample.final.sv, add=TRUE, col="red")
+plot(barrier.sp, add=TRUE)
 
 # Export results to folder for use later
-terra::writeVector(vect(sample.f2), "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
-
-# Cleanup intermediate files
-rm(dem, sample, sample.f2, sample.f3, sample.f3.bbox, sample.f3.buffer.int, sample.f3.extent, sample.f4)
+terra::writeVector(sample.final.sv, "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
 
 
-# 8x: MoveCost Calculations for test run ----------
+# 9: LCP Calculations ----------
 
 
-sample.final.sp <- sample.f2
-# sf::st_read(paste0(scratch.dir, "/sample_final.shp")) %>%
-# sf::st_transform(., crs.thisproject) %>%
-# sf::st_make_valid(.)
+sample.final.sp <- as(sample.final.sv, "Spatial")
 
 #force garbage collection
 gc()
 
-#i <- 3
-sample.final.sp$uid <- paste0("pt_",1:nrow(sample.final.sp))
+#i <- paste0(jobitr)
 
-dem.rast <- dem.2
-
-#create a shell spatial lines data frame and populate with a test run to set the tone
-lca.paths <- foreach::foreach(i=1:3, .combine="c") %do% {
-  
-  sample.final.sp.a <- sample.final.sp[i, ]
-  sample.final.sp.b <- sample.final.sp[-i, ]
-  
-  #run just the LCPs
-  #run from a single point to all points
-  mc.bmc <- movecost::movecomp(
-    dtm = dem.rast,
-    origin = sample.final.sp.a,
-    destin = sample.final.sp.b,
-    studyplot = NULL,
-    barrier = barrier.rast,
-    choice = "t",
-    move = 8,
-    cogn.slp = FALSE,
-    N = 1,
-    oneplot = TRUE,
-    plot.barrier = FALSE,
-    return.base = FALSE,
-    export = FALSE
-  )    
-  
-  #reset the graphics device to avoid issues with plots that can't be turned off
-  #otherwise errors such as, "Error in plot.new() : figure margins too large" will prevent output
-  #if Null is returned then re-set is successful
-  dev.off()
-  
-  #annotate the line segments
-  mc.bmc$LCPs@data$tag <- paste0("from-",i)
-  #mc.bmc$LPCs.back@data$tag <- paste0("to-",i)
-  
-  #append to the spatial lines set
-  tmp1 <- c(mc.bmc$LCPs)
-  #tmp1 <- c(mc.bmc$LCPs, mc.bmc$LPCs.back)
-}    
-
-
-#unlist the data
-unlist <- do.call(rbind, lca.paths)
+#run just the LCPs
+#run from a single point to all points
+#to run to and from for each point 
+mc.bmc <- leastcostpath::create_FETE_lcps(
+  cost_surface = slope_altitude_cs, 
+  locations = sample.final.sp[11:18, ], 
+  cost_distance = FALSE,
+  parallel = FALSE,
+  ncores = 1)
 
 #sanity check - plot the data so far
-plot(dem.rast)
-plot(unlist, add = TRUE)
-plot(barrier.sp, add=TRUE)
+plot(raster(slope_altitude_cs), col = grey.colors(100))
+plot(sample, add = TRUE)
+plot(sample.final.sv, add=TRUE, col="red")
+plot(barrier.sp, col = "blue", add=TRUE)
+plot(mc.bmc, col = "black", add=TRUE)
+
 
 # 8: Copy created files to the data output file on my Home Directory ----------
 
