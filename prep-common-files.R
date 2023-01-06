@@ -4,15 +4,14 @@
 # to run this is an interactive, virtual session for R.
 #
 # Data Preparations
-# 1. Load required libraries and setup variable
+# 1. Load required libraries and setup variables
 # 2. Load required files and setup lists
-# 3. Import lake and river shapefiles for setup - Single serial step
-# 4. Clip the river and lakes shapefiles to the raster extent - Single serial step
+# 3. Import coast, lake, and river shapefiles for setup - Single serial step
+# 4. Clip the coast, lake, and river shapefiles to the raster extent - Single serial step
 # 5. Buffer rivers based on scale rank and combine polygons with lakes as "Barrier" - Single serial step
-# 6. Create raster data versions of barriers - Single serial step
-# 7. Create Grid of Sample Points, limit to points along edges of study area - Single serial step
-# 8: Copy created files to the data output file on my Home Directory
-
+# 6. Create a slope-based cost surface - Single serial step
+# 7. Create barrier cost surface based on step 5 and on elevation - Single serial step
+# 8. Create grid of sample points within the coast areas - Single serial step
 
 
 ## 1: Load required libraries and setup variable ----------
@@ -67,10 +66,10 @@ jobitr <- 1
 # These are the locations for Pinnacle - note that before running the script
 # the base files will need to be uploaded to Pinnacle.
 
-# scratch.dir <- paste0("/scratch/", myjob)
-# storage.inputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/varinputs")
-# storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
-# data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
+scratch.dir <- paste0("/scratch/", myjob)
+storage.inputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/varinputs")
+storage.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/results")
+data.outputs <- paste0("/scrfs/storage/hlford/home/data/lca-sa/dataoutputs")
 
 # ## File locations for Cupcake
 # scratch.dir <- paste0("J:/temp/lca-sa")
@@ -100,7 +99,7 @@ raster::rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratc
 
 
 # untar the DEM (source: OpenTopography SRTM15+)
-dem.untar <-  utils::untar(paste0(storage.inputs,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
+dem.untar <-  utils::untar(paste0(storage.inputs,"/SAraster_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
 # make a raster out of the the tar file; cropping will happen below
 dem <- terra::rast(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
@@ -144,7 +143,7 @@ coast <-
 
 ext(dem)
 
-new_extent <- extent(26.7958333333335, 29.7291666666669, -30.8916666666668, -28.4208333333334)
+new_extent <- extent(6.67916666666684, 42.1875000000002, -37.5666666666668, 3.17499999999991)
 class(new_extent)
 
 
@@ -163,6 +162,11 @@ clip.coast <-
   sf::st_crop(x = ., y = new_extent) %>%
   sf::st_write(., paste0(scratch.dir, "/", "clip_coast.shp"), delete_layer = TRUE) 
 
+# Filtering for only coasts with a scale rank of 0 (mainland, no islands)
+coast.scalerank <- clip.coast[which(clip.coast$scalerank <= 0), ]
+
+# Export results to folder for use later
+sf::st_write(coast.scalerank, paste0(storage.outputs, "/", "clip_coast_sr.shp"), delete_layer = TRUE) 
 
 # PREP Rivers
 rivers.valid <- rivers[which(!is.na(rivers$scalerank)), ]
@@ -268,8 +272,9 @@ slope_cs <- leastcostpath::create_slope_cs(dem = raster(dem), cost_function = "t
 plot(raster(slope_cs), col = grey.colors(100))
 plot(barrier.sp, add=TRUE)
 
+gc()
 
-# 7: Create barrier cost surface ----------
+# 7: Create barrier cost surface based on step 5 and on elevation ----------
 
 
 # Create a blank raster on to which the river and lake barrier polys will be rasterized
@@ -317,79 +322,63 @@ slope_altitude_cs <- slope_cs * pre_cs
 
 plot(raster(slope_altitude_cs), col = grey.colors(100))
 
-# 8: Create Grid of Sample Points ----------
+# Export the transition layer to RDS so that it can be called into the lcp generation
+saveRDS(slope_altitude_cs, "cstobler.rds")
+
+# Read the saved transition layer back into R
+cs <- readRDS("cstobler.rds")
+
+# 8: Create grid of sample points within the coast areas ----------
 
 
-# This bit is for testing where no coastline exits:
-  # regular sampling
-  sample <- terra::spatSample(dem, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
-  
-  #Sanity check: Make a map to see if it all looks correct
-  plot(dem)
-  plot(sample, add = TRUE)
-  
-  #Filtering for only points around edges
-  sample.f2 <- as(sample, "Spatial")
-  sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f2))
-  sample.f3.buffer.int <- terra::buffer(vect(sample.f3.bbox), -10000)
-  sample.final.sv <- terra::erase(sample, sample.f3.buffer.int)
-
-  
-# # This bit is for testing once we have coastline on all sides 
-#   # setting the clipped coast as SpatVector
-#   clip.coast.vect <- terra::vect(clip.coast)
+# # This bit is for testing where no coastline exits:
+#   # regular sampling
+#   sample <- terra::spatSample(dem, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
 #   
-#   # creating a buffer of the coast
-#   coast.buffer.int <- terra::buffer(clip.coast.vect, -10000)
-#   
-#   # sampling within the coastal buffer only
-#   sample <- terra::spatSample(coast.buffer.int, size = c(250), method="random")
-#   
-#   # Sanity check: Make a map to see if it all looks correct
-#   plot(dem.2)
-#   plot(coast.buffer.int, add=TRUE)
+#   #Sanity check: Make a map to see if it all looks correct
+#   plot(dem)
 #   plot(sample, add = TRUE)
+#   
+#   #Filtering for only points around edges
+#   sample.f2 <- as(sample, "Spatial")
+#   sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f2))
+#   sample.f3.buffer.int <- terra::buffer(vect(sample.f3.bbox), -10000)
+#   sample.final.sv <- terra::erase(sample, sample.f3.buffer.int)
+
+  
+# This bit is for testing once we have coastline on all sides
+  # setting the clipped coast as SpatVector
+  clip.coast.vect <- terra::vect(coast.scalerank)
+
+  # creating a buffer of the coast
+  coast.buffer.int <- terra::buffer(clip.coast.vect, -10000)
+
+  # sampling within the coastal buffer only
+  sample <- terra::spatSample(coast.buffer.int, size = c(250), method="random")
 
 
 # Sanity check: Make a map to see if it all looks correct
 plot(raster(slope_altitude_cs), col = grey.colors(100))
 plot(sample, add = TRUE)
-plot(sample.final.sv, add=TRUE, col="red")
+#plot(sample.final.sv, add=TRUE, col="red")
 plot(barrier.sp, add=TRUE)
 
 # Export results to folder for use later
-terra::writeVector(sample.final.sv, "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
+terra::writeVector(sample, "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
 
-
-# 9: LCP Calculations ----------
-
-
-sample.final.sp <- as(sample.final.sv, "Spatial")
+sample.final.sp <- as(sample, "Spatial")
 
 #force garbage collection
 gc()
 
-#i <- paste0(jobitr)
+# Check the locations against the cost surface to identify points that will not be able to create an LCP (outliers/points off mainland)
+isolated.pts <- check_locations(slope_altitude_cs, sample.final.sp)
 
-#run just the LCPs
-#run from a single point to all points
-#to run to and from for each point 
-mc.bmc <- leastcostpath::create_FETE_lcps(
-  cost_surface = slope_altitude_cs, 
-  locations = sample.final.sp[11:18, ], 
-  cost_distance = FALSE,
-  parallel = FALSE,
-  ncores = 1)
-
-#sanity check - plot the data so far
-plot(raster(slope_altitude_cs), col = grey.colors(100))
-plot(sample, add = TRUE)
-plot(sample.final.sv, add=TRUE, col="red")
-plot(barrier.sp, col = "blue", add=TRUE)
-plot(mc.bmc, col = "black", add=TRUE)
+# Remove the isolated points from the data
+sample.final.sp <- sample.final.sp[c(-58, -60, -109, -116, -131, -171, -180, -197, -209), ]
 
 
-# 8: Copy created files to the data output file on my Home Directory ----------
+# 9: Copy created files to the data output file on my Home Directory ----------
 
 
 #Copied all scratch files over to varinputs, so I don't have to re-run everything
