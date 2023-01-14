@@ -1,7 +1,7 @@
 # Where to run
-# This portion or the script can be ran to setup the files on pinnacle portal; this script will
+# This portion of the script can be ran to setup the files on pinnacle portal; this script will
 # setup the common files that will be needed for the parallelized version to run. My recommendation is
-# to run this is an interactive, virtual session for R.
+# to run this is an interactive, virtual session for R; but it could also be ran locally and the inputs upload to Pinnacle.
 #
 # Data Preparations
 # 1. Load required libraries and setup variables
@@ -11,7 +11,8 @@
 # 5. Buffer rivers based on scale rank and combine polygons with lakes as "Barrier" - Single serial step
 # 6. Create a slope-based cost surface - Single serial step
 # 7. Create barrier cost surface based on step 5 and on elevation - Single serial step
-# 8. Create grid of sample points within the coast areas - Single serial step
+# 8. Check sample points against cost surface - Single serial step
+# 9. Copy created files to the data output file on my Home Directory
 
 
 ## 1: Load required libraries and setup variable ----------
@@ -40,17 +41,6 @@ library(stringr)
 library(dplyr)
 library(gdalUtilities)
 library(ggplot2)
-
-#library(movecost)
-#library(snow)
-#library(doSNOW)
-#library(parallel)
-#library(igraph)
-#library(bigstatsr)
-#library(itertools)
-#library(readxl)
-#library(lwgeom)
-#library(foreign)
 
 # Setup for iteration
 # When preparing in an interactive, virtual session the myjob and jobitr variables
@@ -99,7 +89,7 @@ raster::rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratc
 
 
 # untar the DEM (source: OpenTopography SRTM15+)
-dem.untar <-  utils::untar(paste0(storage.inputs,"/SAraster_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
+dem.untar <-  utils::untar(paste0(storage.inputs,"/final_rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
 # make a raster out of the the tar file; cropping will happen below
 dem <- terra::rast(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
@@ -128,8 +118,8 @@ lakes <-
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
 
-coast <-
-  sf::st_read(paste0(storage.inputs, "/ne_10m_coastline.shp")) %>%
+points <-
+  sf::st_read(paste0(storage.inputs, "/Coast_points.shp")) %>%
   sf::st_transform(., crs.thisproject) %>%
   sf::st_make_valid(.)
 
@@ -143,30 +133,9 @@ coast <-
 
 ext(dem)
 
-new_extent <- extent(6.67916666666684, 42.1875000000002, -37.5666666666668, 3.17499999999991)
+new_extent <- extent(9.79583333333352, 42.1833333333336, -35.9583333333335, -12.2500000000001)
 class(new_extent)
 
-
-# PREP Coast
-coast.valid <- coast[which(!is.na(coast$scalerank)), ]
-
-# convert to a single geometry
-coast.types <- vapply(sf::st_geometry(coast.valid), function(x) {
-  class(x)[2]
-}, "")
-
-unique(coast.types)
-
-clip.coast <-
-  coast.valid[grepl("*MULTILINESTRING", coast.types), ] %>%  #ignore the geometry collections
-  sf::st_crop(x = ., y = new_extent) %>%
-  sf::st_write(., paste0(scratch.dir, "/", "clip_coast.shp"), delete_layer = TRUE) 
-
-# Filtering for only coasts with a scale rank of 0 (mainland, no islands)
-coast.scalerank <- clip.coast[which(clip.coast$scalerank <= 0), ]
-
-# Export results to folder for use later
-sf::st_write(coast.scalerank, paste0(storage.outputs, "/", "clip_coast_sr.shp"), delete_layer = TRUE) 
 
 # PREP Rivers
 rivers.valid <- rivers[which(!is.na(rivers$scalerank)), ]
@@ -253,7 +222,7 @@ plot(dem)
 plot(barrier.sp, add=TRUE)
 
 
-# 6: create a slope-based cost surface ----------
+# 6: Create a slope-based cost surface ----------
 
 
 # cost functions currently implemented within leastcostpath
@@ -265,7 +234,7 @@ cfs <- c("tobler", "tobler offpath", "irmischer-clarke male",
 
 # neighbors can be 4, 8, 16, 32, or 48. A greater number of neighbors will result in cost surface and LCP approximating reality better - but be aware that above 8 there is the possibility to "jump" barriers.
 
-neigh <- 8
+neigh <- 16
 
 slope_cs <- leastcostpath::create_slope_cs(dem = raster(dem), cost_function = "tobler", neighbours = neigh)
 
@@ -295,11 +264,11 @@ barrier.rast<- raster::raster(barriers.rastmp)
 
 plot(barrier.rast)
 
-# Create a barrier of altitude values less than or equal to -125
+# Create a barrier of altitude values less than or equal to -150
 # this is to adjust the "coastline" per publication notes
 # The altitude limitation can be changed, but should be tested if changing
 
-altitude <- dem <= -125
+altitude <- dem <= -150
 altitude[altitude == 0] <- NA
 
 plot(altitude)
@@ -328,58 +297,36 @@ saveRDS(slope_altitude_cs, "cstobler.rds")
 # Read the saved transition layer back into R
 cs <- readRDS("cstobler.rds")
 
-# 8: Create grid of sample points within the coast areas ----------
-
-
-# # This bit is for testing where no coastline exits:
-#   # regular sampling
-#   sample <- terra::spatSample(dem, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
-#   
-#   #Sanity check: Make a map to see if it all looks correct
-#   plot(dem)
-#   plot(sample, add = TRUE)
-#   
-#   #Filtering for only points around edges
-#   sample.f2 <- as(sample, "Spatial")
-#   sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f2))
-#   sample.f3.buffer.int <- terra::buffer(vect(sample.f3.bbox), -10000)
-#   sample.final.sv <- terra::erase(sample, sample.f3.buffer.int)
-
-  
-# This bit is for testing once we have coastline on all sides
-  # setting the clipped coast as SpatVector
-  clip.coast.vect <- terra::vect(coast.scalerank)
-
-  # creating a buffer of the coast
-  coast.buffer.int <- terra::buffer(clip.coast.vect, -10000)
-
-  # sampling within the coastal buffer only
-  sample <- terra::spatSample(coast.buffer.int, size = c(250), method="random")
-
-
-# Sanity check: Make a map to see if it all looks correct
-plot(raster(slope_altitude_cs), col = grey.colors(100))
-plot(sample, add = TRUE)
-#plot(sample.final.sv, add=TRUE, col="red")
-plot(barrier.sp, add=TRUE)
-
-# Export results to folder for use later
-terra::writeVector(sample, "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
-
-sample.final.sp <- as(sample, "Spatial")
-
 #force garbage collection
 gc()
 
+
+# 8: Check sample points against cost surface ----------
+
+points.sp <- as(points, "Spatial")
+
 # Check the locations against the cost surface to identify points that will not be able to create an LCP (outliers/points off mainland)
-isolated.pts <- check_locations(slope_altitude_cs, sample.final.sp)
+isolated.pts <- check_locations(slope_altitude_cs, points.sp)
+
+# turn the vector of isolated points into a data frame
+isolated.pts.df <- data.frame(isolated.pts)
+
+# add a column to the df that has the negative value assigned
+isolated.pts.df$rm <- as.integer(isolated.pts.df$isolated.pts * -1)
+
+print(isolated.pts.df$rm)
 
 # Remove the isolated points from the data
-sample.final.sp <- sample.final.sp[c(-58, -60, -109, -116, -131, -171, -180, -197, -209), ]
+points.sp.final <- points.sp[c(-4, -39, -141), ]
 
+plot(raster(cs), col = grey.colors(100))
+plot(points.sp.final, add=TRUE)
+
+save <- st_as_sfc(points.sp.final)
+
+sf::st_write(save, paste0(storage.outputs, "/", "points_final.shp"), delete_layer = TRUE) 
 
 # 9: Copy created files to the data output file on my Home Directory ----------
-
 
 #Copied all scratch files over to varinputs, so I don't have to re-run everything
 scratch.files <- list.files(scratch.dir)
