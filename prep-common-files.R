@@ -307,6 +307,7 @@ points.sp <- as(points, "Spatial")
 
 # Check the locations against the cost surface to identify points that will not be able to create an LCP (outliers/points off mainland)
 isolated.pts <- check_locations(slope_altitude_cs, points.sp)
+#isolated.pts <- check_locations(cs, points.sp)
 
 # turn the vector of isolated points into a data frame
 isolated.pts.df <- data.frame(isolated.pts)
@@ -317,6 +318,7 @@ isolated.pts.df$rm <- as.integer(isolated.pts.df$isolated.pts * -1)
 print(isolated.pts.df$rm)
 
 # Remove the isolated points from the data
+# This step requires manual intervention
 points.sp.final <- points.sp[c(-4, -39, -141), ]
 
 plot(raster(cs), col = grey.colors(100))

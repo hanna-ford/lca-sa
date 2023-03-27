@@ -1,5 +1,5 @@
 # Where to run
-# This is the "development" script where the process is tested on a small area 
+# This is the "development" script where the process is tested on a small area
 # and can be run on a local machine. This script includes both the pre-processing of the common
 # files and the model run.
 #
@@ -21,7 +21,7 @@
 ## commented packages are either installed at cluster level or
 ## ended up not being used.
 
-#install.packages(c("sp", "sf", "rgdal", "stars", "terra", "rgeos", "raster", "proj4", "foreach", "doParallel", "movecost", "stringr", "dplyr", "gdalUtilities", "ggplot2"))
+# install.packages(c("sp", "sf", "rgdal", "stars", "terra", "rgeos", "raster", "proj4", "foreach", "doParallel", "movecost", "stringr", "dplyr", "gdalUtilities", "ggplot2"))
 
 library(sp)
 library(sf)
@@ -41,24 +41,24 @@ library(dplyr)
 library(gdalUtilities)
 library(ggplot2)
 
-#library(movecost) ## building a new version that doesn't use this
-#library(snow)
-#library(doSNOW)
-#library(parallel)
-#library(igraph)
-#library(bigstatsr)
-#library(itertools)
-#library(readxl)
-#library(lwgeom)
-#library(foreign)
+# library(movecost) ## building a new version that doesn't use this
+# library(snow)
+# library(doSNOW)
+# library(parallel)
+# library(igraph)
+# library(bigstatsr)
+# library(itertools)
+# library(readxl)
+# library(lwgeom)
+# library(foreign)
 
 # Setup for iteration
 # When preparing in an interactive, virtual session the myjob and jobitr variables
 #  will need to be set manually unless a slurm job exists for the session.
-myjob <- Sys.getenv('SLURM_JOB_ID')
+myjob <- Sys.getenv("SLURM_JOB_ID")
 # jobitr <- as.numeric(Sys.getenv('JOBITR'))
 
-# comment this out before running in batch; 
+# comment this out before running in batch;
 # if running single this should indicate which point is being processed
 jobitr <- 1
 
@@ -99,7 +99,7 @@ raster::rasterOptions(format = "GTiff", overwrite = TRUE, tmpdir = paste0(scratc
 
 
 # untar the DEM (source: OpenTopography SRTM15+)
-dem.untar <-  utils::untar(paste0(storage.inputs,"/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
+dem.untar <- utils::untar(paste0(storage.inputs, "/rasters_SRTM15Plus.tar.gz"), exdir = paste0(scratch.dir, "/tmp"))
 
 # make a raster out of the the tar file; cropping will happen below
 dem <- terra::rast(paste0(scratch.dir, "/tmp/output_SRTM15Plus.tif"))
@@ -157,9 +157,9 @@ coast.types <- vapply(sf::st_geometry(coast.valid), function(x) {
 unique(coast.types)
 
 clip.coast <-
-  coast.valid[grepl("*MULTILINESTRING", coast.types), ] %>%  #ignore the geometry collections
+  coast.valid[grepl("*MULTILINESTRING", coast.types), ] %>% # ignore the geometry collections
   sf::st_crop(x = ., y = new_extent) %>%
-  sf::st_write(., paste0(scratch.dir, "/", "clip_coast.shp"), delete_layer = TRUE) 
+  sf::st_write(., paste0(scratch.dir, "/", "clip_coast.shp"), delete_layer = TRUE)
 
 
 # PREP Rivers
@@ -173,14 +173,14 @@ rivers.types <- vapply(sf::st_geometry(rivers.valid), function(x) {
 unique(rivers.types)
 
 clip.rivers <-
-  rivers.valid[grepl("*MULTILINESTRING", rivers.types), ] %>%  #ignore the geometry collections
+  rivers.valid[grepl("*MULTILINESTRING", rivers.types), ] %>% # ignore the geometry collections
   sf::st_crop(x = ., y = new_extent) %>%
-  sf::st_write(., paste0(scratch.dir, "/", "clip_rivers.shp"), delete_layer = TRUE) 
+  sf::st_write(., paste0(scratch.dir, "/", "clip_rivers.shp"), delete_layer = TRUE)
 
 # Drop the un-needed fields so that the append for barrier will be clean
-clip.rivers.clean <- clip.rivers[,-(15:40)]
-clip.rivers.clean <- clip.rivers.clean[,-(3:4)]
-clip.rivers.clean <- clip.rivers.clean[,-(6:12)]
+clip.rivers.clean <- clip.rivers[, -(15:40)]
+clip.rivers.clean <- clip.rivers.clean[, -(3:4)]
+clip.rivers.clean <- clip.rivers.clean[, -(6:12)]
 
 # Filtering for only rivers with a scale rank of 7, 8, 9 (largest rivers)
 rivers.scalerank <- clip.rivers.clean[which(clip.rivers.clean$scalerank >= 7), ]
@@ -189,7 +189,7 @@ rivers.scalerank <- clip.rivers.clean[which(clip.rivers.clean$scalerank >= 7), ]
 rm(rivers, rivers.valid, rivers.types, clip.rivers, clip.rivers.clean)
 
 # Export results to folder for use later
-sf::st_write(rivers.scalerank, paste0(storage.outputs, "/", "clip_rivers_sr.shp"), delete_layer = TRUE) 
+sf::st_write(rivers.scalerank, paste0(storage.outputs, "/", "clip_rivers_sr.shp"), delete_layer = TRUE)
 
 
 # PREP Lakes
@@ -203,14 +203,14 @@ lakes.types <- vapply(sf::st_geometry(lakes.valid), function(x) {
 unique(lakes.types)
 
 clip.lakes <-
-  lakes.valid[grepl("*MULTIPOLYGON", lakes.types), ] %>%  #ignore the geometry collections
+  lakes.valid[grepl("*MULTIPOLYGON", lakes.types), ] %>% # ignore the geometry collections
   sf::st_crop(x = ., y = new_extent) %>%
-  sf::st_write(., paste0(storage.outputs, "/", "clip_lakes.shp"), delete_layer = TRUE) 
+  sf::st_write(., paste0(storage.outputs, "/", "clip_lakes.shp"), delete_layer = TRUE)
 
 # Drop the un-needed fields
-clip.lakes.clean <- clip.lakes[,-(15:41)]
-clip.lakes.clean <- clip.lakes.clean[,-(4:4)]
-clip.lakes.clean <- clip.lakes.clean[,-(6:13)]
+clip.lakes.clean <- clip.lakes[, -(15:41)]
+clip.lakes.clean <- clip.lakes.clean[, -(4:4)]
+clip.lakes.clean <- clip.lakes.clean[, -(6:13)]
 
 # Filtering for only lakes with a scale rank of 0, 3 (largest lakes)
 lakes.scalerank <- clip.lakes.clean[which(clip.lakes.clean$scalerank <= 3), ]
@@ -219,7 +219,7 @@ lakes.scalerank <- clip.lakes.clean[which(clip.lakes.clean$scalerank <= 3), ]
 rm(lakes, lakes.valid, lakes.types, clip.lakes, clip.lakes.clean)
 
 # Export results to folder for use later
-sf::st_write(lakes.scalerank, paste0(storage.outputs, "/", "clip_lakes_sr.shp"), delete_layer = TRUE) 
+sf::st_write(lakes.scalerank, paste0(storage.outputs, "/", "clip_lakes_sr.shp"), delete_layer = TRUE)
 
 
 # 5: Buffer rivers based on scale rank and combine polygons with lakes as "Barrier" ----------
@@ -237,14 +237,14 @@ barrier <- rbind(lakes.scalerank, rivers.buffer)
 # PREP the barrier files and export results to folder for use later
 barrier.valid <- barrier[which(!is.na(barrier$scalerank)), ]
 barrier.sp <- as(barrier.valid, "Spatial")
-sf::st_write(barrier.valid, paste0(storage.outputs, "/", "barrier_sp.shp"), delete_layer = TRUE) 
+sf::st_write(barrier.valid, paste0(storage.outputs, "/", "barrier_sp.shp"), delete_layer = TRUE)
 
 # Cleanup intermediate files
 rm(rivers.scalerank, rivers.scalerank.buffer, lakes.scalerank, rivers.buffer, barrier, barrier.valid)
 
 # Sanity check: Make a map to see if it all looks correct
 plot(dem)
-plot(barrier.sp, add=TRUE)
+plot(barrier.sp, add = TRUE)
 
 
 # 6: create a slope-based cost surface ----------
@@ -252,10 +252,12 @@ plot(barrier.sp, add=TRUE)
 
 # cost functions currently implemented within leastcostpath
 
-cfs <- c("tobler", "tobler offpath", "irmischer-clarke male", 
-         "irmischer-clarke offpath male", "irmischer-clarke female", 
-         "irmischer-clarke offpath female","modified tobler", 
-         "wheeled transport", "herzog", "llobera-sluckin", "campbell 2019")
+cfs <- c(
+  "tobler", "tobler offpath", "irmischer-clarke male",
+  "irmischer-clarke offpath male", "irmischer-clarke female",
+  "irmischer-clarke offpath female", "modified tobler",
+  "wheeled transport", "herzog", "llobera-sluckin", "campbell 2019"
+)
 
 # neighbors can be 4, 8, 16, 32, or 48. A greater number of neighbors will result in cost surface and LCP approximating reality better - but be aware that above 8 there is the possibility to "jump" barriers.
 
@@ -264,7 +266,7 @@ neigh <- 8
 slope_cs <- leastcostpath::create_slope_cs(dem = raster(dem), cost_function = "tobler", neighbours = neigh)
 
 plot(raster(slope_cs), col = grey.colors(100))
-plot(barrier.sp, add=TRUE)
+plot(barrier.sp, add = TRUE)
 
 
 # 7: Create barrier cost surface ----------
@@ -274,7 +276,7 @@ plot(barrier.sp, add=TRUE)
 blank.r <- raster::setValues(dem, NA)
 
 # Destination dataset (raster dataset to be written/burned to)
-dst_filename <- paste0("barriers",".tif",sep = "")
+dst_filename <- paste0("barriers", ".tif", sep = "")
 # # Export results to folder for use later
 terra::writeRaster(blank.r, dst_filename, overwrite = TRUE)
 
@@ -282,9 +284,9 @@ barrier.path <- paste0(storage.outputs, "/", "barrier_sp.shp")
 
 # Rasterize the dataset using gdal outside of R; bring result back into R
 # Note that this is set by at=TRUE to burn all pixels that are touched by the vector
-barriers.rastmp <- gdalUtilities::gdal_rasterize(barrier.path, dst_filename, b=1, at=TRUE, a="scalerank")
+barriers.rastmp <- gdalUtilities::gdal_rasterize(barrier.path, dst_filename, b = 1, at = TRUE, a = "scalerank")
 
-barrier.rast<- raster::raster(barriers.rastmp)
+barrier.rast <- raster::raster(barriers.rastmp)
 
 plot(barrier.rast)
 
@@ -319,30 +321,30 @@ plot(raster(slope_altitude_cs), col = grey.colors(100))
 
 # This whole bit is for testing where no coastline exits:
 
-  # regular sampling
-  sample <- terra::spatSample(dem, size = c(100), method="regular", as.points=TRUE, values=TRUE, xy=FALSE, warn=TRUE)
-  
-  #Sanity check: Make a map to see if it all looks correct
-  plot(dem)
-  plot(sample, add = TRUE)
-  
+# regular sampling
+sample <- terra::spatSample(dem, size = c(100), method = "regular", as.points = TRUE, values = TRUE, xy = FALSE, warn = TRUE)
 
-  #Filtering for only points around edges
-  sample.f2 <- as(sample, "Spatial")
-  sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f2))
-  sample.f3.buffer.int <- terra::buffer(vect(sample.f3.bbox), -10000)
-  sample.final.sv <- terra::erase(sample, sample.f3.buffer.int)
+# Sanity check: Make a map to see if it all looks correct
+plot(dem)
+plot(sample, add = TRUE)
 
-# # This bit is for testing once we have coastline on all sides 
+
+# Filtering for only points around edges
+sample.f2 <- as(sample, "Spatial")
+sample.f3.bbox <- sf::st_as_sfc(st_bbox(sample.f2))
+sample.f3.buffer.int <- terra::buffer(vect(sample.f3.bbox), -10000)
+sample.final.sv <- terra::erase(sample, sample.f3.buffer.int)
+
+# # This bit is for testing once we have coastline on all sides
 #   # setting the clipped coast as SpatVector
 #   clip.coast.vect <- terra::vect(clip.coast)
-#   
+#
 #   # creating a buffer of the coast
 #   coast.buffer.int <- terra::buffer(clip.coast.vect, -10000)
-#   
+#
 #   # sampling within the coastal buffer only
 #   sample <- terra::spatSample(coast.buffer.int, size = c(250), method="random")
-#   
+#
 #   # Sanity check: Make a map to see if it all looks correct
 #   plot(dem.2)
 #   plot(coast.buffer.int, add=TRUE)
@@ -352,11 +354,11 @@ plot(raster(slope_altitude_cs), col = grey.colors(100))
 # Sanity check: Make a map to see if it all looks correct
 plot(raster(slope_altitude_cs), col = grey.colors(100))
 plot(sample, add = TRUE)
-plot(sample.final.sv, add=TRUE, col="red")
-plot(barrier.sp, add=TRUE)
+plot(sample.final.sv, add = TRUE, col = "red")
+plot(barrier.sp, add = TRUE)
 
 # Export results to folder for use later
-terra::writeVector(sample.final.sv, "sample_final.shp", filetype="ESRI Shapefile", overwrite=TRUE)
+terra::writeVector(sample.final.sv, "sample_final.shp", filetype = "ESRI Shapefile", overwrite = TRUE)
 
 
 # 9: LCP Calculations ----------
@@ -364,24 +366,24 @@ terra::writeVector(sample.final.sv, "sample_final.shp", filetype="ESRI Shapefile
 
 sample.final.sp <- as(sample.final.sv, "Spatial")
 
-#force garbage collection
+# force garbage collection
 gc()
 
-#i <- paste0(jobitr)
+# i <- paste0(jobitr)
 
-  #run just the LCPs
-  #run from a single point to all points
-  #to run to and from for each point 
-  mc.bmc <- leastcostpath::create_FETE_lcps(
-    cost_surface = slope_altitude_cs, 
-    locations = sample.final.sp[11:18, ], 
-    cost_distance = FALSE,
-    parallel = FALSE,
-    ncores = 1)
+# run just the LCPs
+# run from a single point to all points
+# to run to and from for each point
+mc.bmc <- leastcostpath::create_FETE_lcps(
+  cost_surface = slope_altitude_cs,
+  locations = sample.final.sp[11:18, ],
+  cost_distance = FALSE,
+  parallel = FALSE,
+  ncores = 1
+)
 
-#sanity check - plot the data so far
+# sanity check - plot the data so far
 plot(raster(slope_altitude_cs), col = grey.colors(100))
-plot(sample.final.sp[11:18, ], add=TRUE, col="red")
-plot(barrier.sp, col = "blue", add=TRUE)
-plot(mc.bmc, col = "black", add=TRUE)
-
+plot(sample.final.sp[11:18, ], add = TRUE, col = "red")
+plot(barrier.sp, col = "blue", add = TRUE)
+plot(mc.bmc, col = "black", add = TRUE)
